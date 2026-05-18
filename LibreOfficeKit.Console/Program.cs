@@ -1,5 +1,29 @@
-// =============================================================================
+//
 // Program.cs
+//
+// Author: Kees van Spelde <sicos2002@hotmail.com>
+//
+// Copyright (c) 2026 Kees van Spelde. (www.magic-sessions.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+// =============================================================================
 //
 // .NET 10 Console Application — Document to PDF Converter using LibreOfficeKit
 //
@@ -14,7 +38,7 @@
 using LibreOfficeKit;
 
 // ── Worker mode: launched by the Converter class ──────────────────────────────
-if (args.Length >= 2 && args[0] == "--worker")
+if (args is ["--worker", _, ..])
 {
     var pipeName = args[1];
     return await WorkerProcess.RunAsync(pipeName);
@@ -26,7 +50,7 @@ Console.WriteLine("  Multi-process pool architecture with hot standby");
 Console.WriteLine();
 
 // Example: convert using the legacy single-instance approach
-if (args.Length >= 2 && args[0] == "--direct") return RunDirectConversion(args[1], args.Length > 2 ? args[2] : null);
+if (args is ["--direct", _, ..]) return RunDirectConversion(args[1], args.Length > 2 ? args[2] : null);
 
 // Example: convert using the Converter pool
 if (args.Length >= 1 && args[0] != "--worker")
@@ -133,11 +157,9 @@ static int RunDirectConversion(string inputFile, string? outputFile)
         if (success)
         {
             Console.WriteLine("OK");
-            if (File.Exists(outputFile))
-            {
-                var fi = new FileInfo(outputFile);
-                Console.WriteLine($"\n  Output: {outputFile} ({fi.Length:N0} bytes)");
-            }
+            if (!File.Exists(outputFile)) return 0;
+            var fi = new FileInfo(outputFile);
+            Console.WriteLine($"\n  Output: {outputFile} ({fi.Length:N0} bytes)");
 
             return 0;
         }
