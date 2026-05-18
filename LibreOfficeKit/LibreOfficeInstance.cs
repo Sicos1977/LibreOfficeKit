@@ -1,5 +1,29 @@
-// =============================================================================
+//
 // LibreOfficeInstance.cs
+//
+// Author: Kees van Spelde <sicos2002@hotmail.com>
+//
+// Copyright (c) 2026 Kees van Spelde. (www.magic-sessions.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+// =============================================================================
 //
 // Manages the lifecycle of a LibreOfficeKit instance. Handles dynamic loading
 // of the native LOK library, initialization via libreofficekit_hook, and
@@ -18,32 +42,50 @@ namespace LibreOfficeKit;
 public sealed class LibreOfficeInstance : IDisposable
 {
     #region Fields
-    /// <summary>Global lock ensuring only one LOK instance is active at a time.</summary>
-    private static readonly object s_globalLock = new();
+    /// <summary>
+    ///     Global lock ensuring only one LOK instance is active at a time.
+    /// </summary>
+    private static readonly object GlobalLock = new();
 
-    /// <summary>Tracks whether an instance is currently active.</summary>
-    private static bool s_instanceActive;
+    /// <summary>
+    ///     Tracks whether an instance is currently active.
+    /// </summary>
+    private static bool _instanceActive;
 
-    /// <summary>Pointer to the native LibreOfficeKit instance.</summary>
+    /// <summary>
+    ///     Pointer to the native LibreOfficeKit instance.
+    /// </summary>
     private IntPtr _pOffice;
 
-    /// <summary>The office class vtable containing native function pointers.</summary>
+    /// <summary>
+    ///     The office class vtable containing native function pointers.
+    /// </summary>
     private readonly LibreOfficeKitClass _officeClass;
 
-    /// <summary>Handle to the dynamically loaded LOK native library.</summary>
+    /// <summary>
+    ///     Handle to the dynamically loaded LOK native library.
+    /// </summary>
     private IntPtr _libraryHandle;
 
-    /// <summary>Indicates whether this instance has been disposed.</summary>
+    /// <summary>
+    ///     Indicates whether this instance has been disposed.
+    /// </summary>
     private bool _disposed;
 
-    /// <summary>Library names to search for on Windows.</summary>
-    private static readonly string[] s_windowsLibs = ["sofficeapp.dll", "mergedlo.dll"];
+    /// <summary>
+    ///     Library names to search for on Windows.
+    /// </summary>
+    private static readonly string[] WindowsLibs = ["sofficeapp.dll", "mergedlo.dll"];
 
-    /// <summary>Library names to search for on Linux.</summary>
-    private static readonly string[] s_linuxLibs = ["libsofficeapp.so", "libmergedlo.so"];
+    /// <summary>
+    ///     Library names to search for on Linux.
+    /// </summary>
+    private static readonly string[] LinuxLibs = ["libsofficeapp.so", "libmergedlo.so"];
 
-    /// <summary>Library names to search for on macOS.</summary>
-    private static readonly string[] s_macosLibs = ["libsofficeapp.dylib", "libmergedlo.dylib"];
+    /// <summary>
+    ///     Library names to search for on macOS.
+    /// </summary>
+    private static readonly string[] MacosLibs = ["libsofficeapp.dylib", "libmergedlo.dylib"];
     #endregion
 
     #region LibreOfficeInstance
@@ -74,9 +116,9 @@ public sealed class LibreOfficeInstance : IDisposable
     /// <exception cref="DirectoryNotFoundException">Thrown when the install path does not exist.</exception>
     public static LibreOfficeInstance Create(string installPath)
     {
-        lock (s_globalLock)
+        lock (GlobalLock)
         {
-            if (s_instanceActive)
+            if (_instanceActive)
                 throw new InvalidOperationException(
                     "Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
 
@@ -87,7 +129,7 @@ public sealed class LibreOfficeInstance : IDisposable
 
             if (OperatingSystem.IsWindows())
             {
-                var currentPath = Environment.GetEnvironmentVariable("PATH") ?? "";
+                var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
                 if (!currentPath.Contains(installPath, StringComparison.OrdinalIgnoreCase))
                     Environment.SetEnvironmentVariable("PATH", $"{installPath};{currentPath}");
             }
@@ -97,8 +139,7 @@ public sealed class LibreOfficeInstance : IDisposable
             if (!NativeLibrary.TryGetExport(libraryHandle, "libreofficekit_hook", out var hookPtr))
             {
                 NativeLibrary.Free(libraryHandle);
-                throw new InvalidOperationException(
-                    "Could not find 'libreofficekit_hook' export in LibreOffice library.");
+                throw new InvalidOperationException("Could not find 'libreofficekit_hook' export in LibreOffice library.");
             }
 
             var hook = Marshal.GetDelegateForFunctionPointer<LokHookFunction>(hookPtr);
@@ -117,22 +158,18 @@ public sealed class LibreOfficeInstance : IDisposable
             if (pOffice == IntPtr.Zero)
             {
                 NativeLibrary.Free(libraryHandle);
-                throw new InvalidOperationException(
-                    "libreofficekit_hook returned null. LibreOffice initialization failed.");
+                throw new InvalidOperationException("libreofficekit_hook returned null. LibreOffice initialization failed.");
             }
 
-            s_instanceActive = true;
+            _instanceActive = true;
 
             var instance = new LibreOfficeInstance(pOffice, libraryHandle);
 
             var initError = instance.GetError();
-            if (initError != null)
-            {
-                instance.Dispose();
-                throw new InvalidOperationException($"LibreOffice initialization error: {initError}");
-            }
+            if (initError == null) return instance;
+            instance.Dispose();
+            throw new InvalidOperationException($"LibreOffice initialization error: {initError}");
 
-            return instance;
         }
     }
     #endregion
@@ -158,9 +195,7 @@ public sealed class LibreOfficeInstance : IDisposable
                 return handle;
         }
 
-        throw new FileNotFoundException(
-            $"Could not find or load LibreOffice library in: {installPath}. " +
-            $"Searched for: {string.Join(", ", GetLibraryNames())}.");
+        throw new FileNotFoundException($"Could not find or load LibreOffice library in: {installPath}. Searched for: {string.Join(", ", GetLibraryNames())}.");
     }
     #endregion
 
@@ -171,9 +206,8 @@ public sealed class LibreOfficeInstance : IDisposable
     /// <returns>An array of library file names.</returns>
     private static string[] GetLibraryNames()
     {
-        if (OperatingSystem.IsWindows()) return s_windowsLibs;
-        if (OperatingSystem.IsMacOS()) return s_macosLibs;
-        return s_linuxLibs;
+        if (OperatingSystem.IsWindows()) return WindowsLibs;
+        return OperatingSystem.IsMacOS() ? MacosLibs : LinuxLibs;
     }
     #endregion
 
@@ -216,13 +250,9 @@ public sealed class LibreOfficeInstance : IDisposable
             if (Directory.Exists(path))
                 return path;
 
-        if (OperatingSystem.IsLinux() || OperatingSystem.IsMacOS())
-        {
-            var optPath = FindOptLatest();
-            if (optPath != null) return optPath;
-        }
-
-        return null;
+        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return null;
+        var optPath = FindOptLatest();
+        return optPath ?? null;
     }
     #endregion
 
@@ -303,10 +333,7 @@ public sealed class LibreOfficeInstance : IDisposable
         if (error != null)
             throw new InvalidOperationException($"Failed to load document: {error}");
 
-        if (pDoc == IntPtr.Zero)
-            throw new InvalidOperationException("documentLoad returned null pointer.");
-
-        return new LoDocument(pDoc);
+        return pDoc == IntPtr.Zero ? throw new InvalidOperationException("documentLoad returned null pointer.") : new LoDocument(pDoc);
     }
     #endregion
 
@@ -330,11 +357,9 @@ public sealed class LibreOfficeInstance : IDisposable
 
         var errorMessage = Marshal.PtrToStringAnsi(rawError) ?? "Unknown error";
 
-        if (_officeClass.freeError != IntPtr.Zero)
-        {
-            var freeError = Marshal.GetDelegateForFunctionPointer<LokFreeErrorFunction>(_officeClass.freeError);
-            freeError(rawError);
-        }
+        if (_officeClass.freeError == IntPtr.Zero) return errorMessage;
+        var freeError = Marshal.GetDelegateForFunctionPointer<LokFreeErrorFunction>(_officeClass.freeError);
+        freeError(rawError);
 
         return errorMessage;
     }
@@ -358,9 +383,9 @@ public sealed class LibreOfficeInstance : IDisposable
         _pOffice = IntPtr.Zero;
         _libraryHandle = IntPtr.Zero;
 
-        lock (s_globalLock)
+        lock (GlobalLock)
         {
-            s_instanceActive = false;
+            _instanceActive = false;
         }
     }
     #endregion

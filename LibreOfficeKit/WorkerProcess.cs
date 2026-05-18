@@ -1,5 +1,29 @@
-// =============================================================================
+//
 // WorkerProcess.cs
+//
+// Author: Kees van Spelde <sicos2002@hotmail.com>
+//
+// Copyright (c) 2026 Kees van Spelde. (www.magic-sessions.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
+// =============================================================================
 //
 // Worker mode entry point. When the executable is launched with:
 //   --worker <pipeName>
@@ -8,8 +32,10 @@
 //
 // Each worker process has its own LibreOfficeKit instance — this is safe
 // because each worker IS a separate OS process.
+//
 // =============================================================================
 
+using LibreOfficeKit.Protocols;
 using System.IO.Pipes;
 
 namespace LibreOfficeKit;
@@ -29,8 +55,7 @@ public static class WorkerProcess
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
     public static async Task<int> RunAsync(string pipeName)
     {
-        await using var pipeClient = new NamedPipeClientStream(
-            ".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        await using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         try
         {
@@ -38,29 +63,31 @@ public static class WorkerProcess
         }
         catch (TimeoutException)
         {
-            Console.Error.WriteLine($"[Worker] Timeout connecting to pipe '{pipeName}'.");
+            await Console.Error.WriteLineAsync($"[Worker] Timeout connecting to pipe '{pipeName}'.");
             return 1;
         }
 
         using var reader = new StreamReader(pipeClient, leaveOpen: true);
-        using var writer = new StreamWriter(pipeClient, leaveOpen: true) { AutoFlush = true };
+        await using var writer = new StreamWriter(pipeClient, leaveOpen: true);
+        writer.AutoFlush = true;
 
-        LibreOfficeInstance? office = null;
+        LibreOfficeInstance? office;
+
         try
         {
             var installPath = LibreOfficeInstance.FindInstallPath();
             if (installPath == null)
             {
-                await SendAsync(writer, new ErrorResponse { Message = "LibreOffice installation not found." });
+                await SendAsync(writer, new ErrorResponse("LibreOffice installation not found."));
                 return 1;
             }
 
             office = LibreOfficeInstance.Create(installPath);
             await SendAsync(writer, new ReadyResponse());
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            await SendAsync(writer, new ErrorResponse { Message = $"Init failed: {ex.Message}" });
+            await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'"));
             return 1;
         }
 
@@ -122,33 +149,25 @@ public static class WorkerProcess
     {
         try
         {
-            var inputUrl = LibreOfficeInstance.PathToFileUrl(request.InputPath);
-            var outputUrl = LibreOfficeInstance.PathToFileUrl(request.OutputPath);
+            var inputUrl = LibreOfficeInstance.PathToFileUrl(request.InputFile);
+            var outputUrl = LibreOfficeInstance.PathToFileUrl(request.OutputFile);
 
             using var document = office.DocumentLoad(inputUrl);
             var success = document.SaveAs(outputUrl, "pdf");
 
             if (success)
             {
-                await SendAsync(writer, new ConvertResponse { Success = true });
+                await SendAsync(writer, new ConvertResponse(true));
             }
             else
             {
                 var error = office.GetError();
-                await SendAsync(writer, new ConvertResponse
-                {
-                    Success = false,
-                    Error = error ?? "SaveAs returned failure."
-                });
+                await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure."));
             }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            await SendAsync(writer, new ConvertResponse
-            {
-                Success = false,
-                Error = ex.Message
-            });
+            await SendAsync(writer, new ConvertResponse(false, exception.Message));
         }
     }
     #endregion
