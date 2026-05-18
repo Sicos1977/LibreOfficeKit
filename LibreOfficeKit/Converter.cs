@@ -39,16 +39,32 @@
 // =============================================================================
 
 using LibreOfficeKit.Protocols;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Reflection;
+// ReSharper disable UnusedMember.Global
 
 namespace LibreOfficeKit;
 
 /// <summary>
 ///     Manages a pool of LibreOffice worker processes for document-to-PDF conversion.
 /// </summary>
+/// <remarks>
+///     High-level document converter that manages a pool of worker processes.
+///     Each worker is a separate OS process running its own LibreOfficeKit instance,
+///     communicating with the host via named pipes.
+///
+///     Features:
+///       - Hot standby: pre-spawned workers ready for immediate use
+///       - On-demand scaling: additional workers up to maxInstances
+///       - Idle timeout: workers shut down after idleTimeout of inactivity
+///       - Health monitoring: background task detects crashes/hangs
+///       - Request queue: requests queue when all workers are busy
+///       - IDisposable: proper cleanup of all workers and resources
+/// </remarks>
 #if NETSTANDARD2_0
 public sealed class Converter : IDisposable
 #else
@@ -132,6 +148,11 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     ///     Path to the worker executable.
     /// </summary>
     private readonly string _workerExePath;
+
+    /// <summary>
+    ///     Logger for this instance.
+    /// </summary>
+    private readonly ILogger<Converter> _logger;
     #endregion
 
     #region Converter
@@ -142,15 +163,16 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     /// <param name="maxInstances">Maximum number of worker processes.</param>
     /// <param name="minHotStandby">Number of workers to start immediately and keep warm.</param>
     /// <param name="idleTimeout">Time after which idle workers (beyond hot standby) are shut down.</param>
-    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout)
+    /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
+    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, ILogger<Converter>? logger = null)
     {
+        _logger = logger ?? NullLogger<Converter>.Instance;
         if (maxInstances < 1)
             throw new ArgumentOutOfRangeException(nameof(maxInstances), "Must be at least 1.");
         if (minHotStandby < 0)
             throw new ArgumentOutOfRangeException(nameof(minHotStandby), "Cannot be negative.");
         if (minHotStandby > maxInstances)
-            throw new ArgumentOutOfRangeException(nameof(minHotStandby),
-                "Cannot exceed maxInstances.");
+            throw new ArgumentOutOfRangeException(nameof(minHotStandby), "Cannot exceed maxInstances.");
 
         _maxInstances = maxInstances;
         _minHotStandby = minHotStandby;
@@ -161,10 +183,13 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         _workerExePath = ResolveWorkerExePath();
 
+        _logger.LogInformation("Converter initialized: maxInstances={MaxInstances}, minHotStandby={MinHotStandby}, idleTimeout={IdleTimeout}",
+            maxInstances, minHotStandby, idleTimeout);
+
         for (var i = 0; i < minHotStandby; i++)
             SpawnWorkerAsync().ContinueWith(t =>
             {
-                if (t is not { IsCompletedSuccessfully: true, Result: not null }) return;
+                if (t.Status != TaskStatus.RanToCompletion || t.Result == null) return;
                 _availableWorkers.Add(t.Result);
                 _workerAvailable.Release();
             }, TaskScheduler.Default);
@@ -182,7 +207,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     /// <param name="outputFile">Path where the PDF will be written.</param>
     public async Task ConvertToPdfAsync(string inputFile, string outputFile)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         if (!File.Exists(inputFile))
             throw new FileNotFoundException("Input file not found.", inputFile);
@@ -190,17 +215,25 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         inputFile = Path.GetFullPath(inputFile);
         outputFile = Path.GetFullPath(outputFile);
 
+        _logger.LogInformation("Converting '{InputFile}' to PDF -> '{OutputFile}'", inputFile, outputFile);
+
         var outputDir = Path.GetDirectoryName(outputFile);
         if (outputDir != null && !Directory.Exists(outputDir))
             Directory.CreateDirectory(outputDir);
 
         await ExecuteOnWorkerAsync(async worker =>
         {
+            _logger.LogDebug("Dispatching conversion to worker {PipeName}", worker.PipeName);
             var request = new ConvertRequest(inputFile, outputFile);
             var response = await worker.SendRequestAsync<ConvertResponse>(request);
 
             if (!response.Success)
+            {
+                _logger.LogError("PDF conversion failed for '{InputFile}': {Error}", inputFile, response.Error ?? "Unknown error");
                 throw new InvalidOperationException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
+            }
+
+            _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
         });
     }
 
@@ -213,13 +246,22 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     /// <param name="outputStream">Stream where the PDF will be written.</param>
     public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         var tempInputFile = Path.Combine(Path.GetTempPath(), $"lok_in_{Guid.NewGuid():N}.tmp");
         var tempOutputFile = Path.Combine(Path.GetTempPath(), $"lok_out_{Guid.NewGuid():N}.pdf");
 
         try
         {
+#if NETSTANDARD2_0
+            using (var inputFileStream = File.Create(tempInputFile))
+                await inputStream.CopyToAsync(inputFileStream);
+
+            await ConvertToPdfAsync(tempInputFile, tempOutputFile);
+
+            using (var outputFileStream = File.OpenRead(tempOutputFile))
+                await outputFileStream.CopyToAsync(outputStream);
+#else
             await using var inputFileStream = File.Create(tempInputFile);
             await inputStream.CopyToAsync(inputFileStream);
 
@@ -227,6 +269,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
             await using var outputFileStream = File.OpenRead(tempOutputFile);
             await outputFileStream.CopyToAsync(outputStream);
+#endif
         }
         finally
         {
@@ -291,7 +334,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         }
         finally
         {
-            if (worker != null && worker.IsAlive)
+            if (worker is { IsAlive: true })
             {
                 worker.MarkIdle();
                 _availableWorkers.Add(worker);
@@ -330,18 +373,22 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         };
 
         Process? process;
+        _logger.LogDebug("Spawning worker process with pipe '{PipeName}'", pipeName);
+
         try
         {
             process = Process.Start(psi);
             if (process == null)
             {
-                await pipeServer.DisposeAsync();
+                _logger.LogError("Failed to start worker process for pipe '{PipeName}'", pipeName);
+                pipeServer.Dispose();
                 return null;
             }
         }
-        catch
+        catch (Exception ex)
         {
-            await pipeServer.DisposeAsync();
+            _logger.LogError(ex, "Exception starting worker process for pipe '{PipeName}'", pipeName);
+            pipeServer.Dispose();
             return null;
         }
 
@@ -350,7 +397,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
             using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
             await pipeServer.WaitForConnectionAsync(connectCts.Token);
 
-            var handle = new WorkerHandle(pipeName, process, pipeServer);
+            var handle = new WorkerHandle(pipeName, process, pipeServer, _logger);
 
             var response = await handle.ReadResponseAsync(TimeSpan.FromSeconds(30));
 
@@ -359,10 +406,11 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                 case ReadyResponse:
                     _allWorkers[pipeName] = handle;
                     handle.MarkIdle();
+                    _logger.LogInformation("Worker spawned and ready: pipe '{PipeName}', PID {Pid}", pipeName, process.Id);
                     return handle;
 
                 case ErrorResponse err:
-                    await Console.Error.WriteLineAsync($"[Converter] Worker init error: '{err.Message}'");
+                    _logger.LogError("Worker init error on pipe '{PipeName}': {Error}", pipeName, err.Message);
                     break;
             }
 
@@ -371,7 +419,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         }
         catch (Exception ex)
         {
-            await Console.Error.WriteLineAsync($"[Converter] Failed to spawn worker: '{ex.Message}'");
+            _logger.LogError(ex, "Failed to spawn worker for pipe '{PipeName}'", pipeName);
             try
             {
                 process.Kill();
@@ -381,7 +429,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                 // ignored
             }
 
-            await pipeServer.DisposeAsync();
+            pipeServer.Dispose();
             return null;
         }
     }
@@ -436,8 +484,8 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         lock (_scaleLock)
         {
             _totalWorkerCount = Math.Max(0, _totalWorkerCount - 1);
+            _logger.LogDebug("Removing worker '{PipeName}' from pool (total remaining: {Total}).", worker.PipeName, _totalWorkerCount);
         }
-
         worker.Kill();
     }
     #endregion
@@ -468,23 +516,28 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
                 if (!worker.IsAlive)
                 {
-                    await Console.Error.WriteLineAsync($"[HealthMonitor] Worker {worker.PipeName} process died. Removing.");
+                    _logger.LogWarning("Worker '{PipeName}' process died. Removing from pool.", worker.PipeName);
                     RemoveWorker(worker);
                     continue;
                 }
 
                 try
                 {
+                    _logger.LogDebug("Pinging worker '{PipeName}'", worker.PipeName);
                     var pong = await worker.PingAsync(TimeSpan.FromSeconds(5));
                     if (!pong)
                     {
-                        await Console.Error.WriteLineAsync($"[HealthMonitor] Worker {worker.PipeName} did not respond to ping. Recycling.");
+                        _logger.LogWarning("Worker '{PipeName}' did not respond to ping. Recycling.", worker.PipeName);
                         RemoveWorker(worker);
                     }
+                    else
+                    {
+                        _logger.LogDebug("Worker '{PipeName}' ping OK.", worker.PipeName);
+                    }
                 }
-                catch
+                catch (Exception ex)
                 {
-                    await Console.Error.WriteLineAsync($"[HealthMonitor] Worker {worker.PipeName} ping failed. Recycling.");
+                    _logger.LogError(ex, "Worker '{PipeName}' ping threw an exception. Recycling.", worker.PipeName);
                     RemoveWorker(worker);
                 }
             }
@@ -495,7 +548,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
             }
             catch (Exception ex)
             {
-                await Console.Error.WriteLineAsync($"[HealthMonitor] Error ensuring hot standby: {ex.Message}");
+                _logger.LogError(ex, "Error ensuring hot standby");
             }
         }
     }
@@ -533,10 +586,8 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
             foreach (var worker in workersToShutdown)
             {
-                Console.WriteLine(
-                    $"[IdleMonitor] Shutting down idle worker {worker.PipeName} " +
-                    $"(idle for {worker.IdleDuration.TotalSeconds:F0}s).");
-
+                _logger.LogInformation("Shutting down idle worker '{PipeName}' (idle for {IdleSeconds:F0}s).",
+                    worker.PipeName, worker.IdleDuration.TotalSeconds);
                 RemoveWorker(worker);
             }
         }
@@ -551,9 +602,11 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     /// <exception cref="InvalidOperationException">Thrown when the path cannot be determined.</exception>
     private static string ResolveWorkerExePath()
     {
+#if !NETSTANDARD2_0
         var processPath = Environment.ProcessPath;
         if (processPath != null && File.Exists(processPath))
             return processPath;
+#endif
 
         var entryAssembly = Assembly.GetEntryAssembly()?.Location;
         if (entryAssembly != null && File.Exists(entryAssembly))

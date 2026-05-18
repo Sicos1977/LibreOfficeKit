@@ -8,23 +8,41 @@ worker pool for safe concurrent conversions.
 LibreOfficeKit (LOK) is **not** thread-safe — only one instance per process is allowed. To enable concurrent
 conversions, this project uses a **process pool** architecture:
 
-```
-┌─────────────────────────────────────┐
-│         Host Process                │
-│  ┌───────────────────────────────┐  │
-│  │      Converter (pool mgr)    │  │
-│  │  - hot standby management    │  │
-│  │  - health monitoring         │  │
-│  │  - idle timeout              │  │
-│  │  - request queuing           │  │
-│  └───┬───────┬───────┬──────────┘  │
-│      │ pipe  │ pipe  │ pipe        │
-└──────┼───────┼───────┼─────────────┘
-       │       │       │
-  ┌────┴──┐ ┌──┴───┐ ┌─┴─────┐
-  │Worker1│ │Worker2│ │Worker3│   (separate OS processes)
-  │  LOK  │ │  LOK  │ │  LOK  │
-  └───────┘ └──────┘ └───────┘
+```mermaid
+flowchart TD
+    subgraph Host["Host Process"]
+        C["**Converter** *(pool manager)*\n─────────────────────────────\n• hot standby management\n• on-demand scaling\n• health monitoring via ping\n• idle timeout & recycling\n• request queuing"]
+
+        WH1["**WorkerHandle 1**\nstdin/stdout pipe\nIpcSerializer JSON"]
+        WH2["**WorkerHandle 2**\nstdin/stdout pipe\nIpcSerializer JSON"]
+        WH3["**WorkerHandle 3**\nstdin/stdout pipe\nIpcSerializer JSON"]
+
+        C --> WH1
+        C --> WH2
+        C --> WH3
+    end
+
+    subgraph WP1["Worker Process 1 *(OS process)*"]
+        WPS1["WorkerProcess"]
+        LOK1["LibreOfficeInstance\nLOK C API"]
+        WPS1 --> LOK1
+    end
+
+    subgraph WP2["Worker Process 2 *(OS process)*"]
+        WPS2["WorkerProcess"]
+        LOK2["LibreOfficeInstance\nLOK C API"]
+        WPS2 --> LOK2
+    end
+
+    subgraph WP3["Worker Process 3 *(OS process)*"]
+        WPS3["WorkerProcess"]
+        LOK3["LibreOfficeInstance\nLOK C API"]
+        WPS3 --> LOK3
+    end
+
+    WH1 --> WP1
+    WH2 --> WP2
+    WH3 --> WP3
 ```
 
 ## Solution Structure
@@ -36,16 +54,52 @@ conversions, this project uses a **process pool** architecture:
 
 ## Key Components
 
-| File                        | Description                                                 |
-|-----------------------------|-------------------------------------------------------------|
-| `Converter.cs`              | Main pool manager — spawns, monitors, and recycles workers  |
-| `WorkerHandle.cs`           | Encapsulates state and IPC for a single worker process      |
-| `WorkerProcess.cs`          | Worker mode entry point — runs in spawned processes         |
-| `IpcProtocol.cs`            | IPC message types and JSON serialization                    |
-| `LibreOfficeInstance.cs`    | Low-level LOK wrapper — initialization and document loading |
-| `LoDocument.cs`             | Document wrapper — save/convert and type queries            |
-| `LibreOfficeKitBindings.cs` | P/Invoke bindings for the native LOK C API                  |
-| `Enums/`                    | SaveFormat, DocumentType, PdfOptions, PdfVersion, etc.      |
+### `LibreOfficeKit` (Class Library)
+
+| File                            | Description                                                      |
+|---------------------------------|------------------------------------------------------------------|
+| `Converter.cs`                  | Main pool manager — spawns, monitors, and recycles workers       |
+| `WorkerHandle.cs`               | Encapsulates state and IPC for a single worker process           |
+| `WorkerProcess.cs`              | Worker mode entry point — runs in spawned processes              |
+| `LibreOfficeInstance.cs`        | Low-level LOK wrapper — initialization and document loading      |
+| `LoDocument.cs`                 | Document wrapper — save/convert and type queries                 |
+| `LibreOfficeKitBindings.cs`     | P/Invoke bindings for the native LOK C API                       |
+
+#### `Protocols/`
+
+| File                            | Description                                                      |
+|---------------------------------|------------------------------------------------------------------|
+| `IpcProtocol.cs`                | IPC message type definitions                                     |
+| `IpcSerializer.cs`              | JSON serialization for IPC messages                              |
+| `PingRequest.cs`                | Health-check ping request message                                |
+| `PongResponse.cs`               | Health-check pong response message                               |
+| `WorkerRequest.cs`              | Conversion request message sent to a worker                      |
+| `WorkerResponse.cs`             | Base worker response message                                     |
+| `ConvertResponse.cs`            | Successful conversion response message                           |
+| `ReadyResponse.cs`              | Worker ready/idle status response message                        |
+| `ErrorResponse.cs`              | Error response message from a worker                             |
+| `ShutdownRequest.cs`            | Graceful shutdown request message                                |
+
+#### `Enums/`
+
+| File                            | Description                                                      |
+|---------------------------------|------------------------------------------------------------------|
+| `DocumentType.cs`               | Document type classification                                     |
+| `InitialView.cs`                | PDF initial view mode options                                    |
+| `PdfACompliance.cs`             | PDF/A compliance level options                                   |
+| `PdfChangePermission.cs`        | PDF change permission flags                                      |
+| `PdfCompressionOptions.cs`      | PDF image compression options                                    |
+| `PdfOptions.cs`                 | Aggregate PDF export options                                     |
+| `PdfPrintPermission.cs`         | PDF print permission flags                                       |
+| `PdfSecurityOptions.cs`         | PDF encryption and security options                              |
+| `PdfVersion.cs`                 | PDF version/standard selection                                   |
+| `SaveFormat.cs`                 | Output save format enumeration                                   |
+
+### `LibreOfficeKit.Console` (Console App)
+
+| File          | Description                             |
+|---------------|-----------------------------------------|
+| `Program.cs`  | Demo/testing console application entry  |
 
 ## Features
 

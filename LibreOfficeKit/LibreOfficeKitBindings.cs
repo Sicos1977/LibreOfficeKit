@@ -23,15 +23,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-// =============================================================================
-//
-// Low-level P/Invoke bindings for LibreOfficeKit (LOK).
-// Uses NativeLibrary + Marshal for dynamic loading and vtable-based
-// function pointer invocation of the native LOK C API.
-// This file defines the raw struct layouts for the LOK objects and their vtables,
-// as well as the delegate types for the function pointers in the vtables.
-//
-// =============================================================================
 
 using System.Runtime.InteropServices;
 
@@ -44,7 +35,9 @@ namespace LibreOfficeKit;
 [StructLayout(LayoutKind.Sequential)]
 internal struct LibreOfficeKitStruct
 {
-    /// <summary>Pointer to the LibreOfficeKitClass vtable.</summary>
+    /// <summary>
+    ///     Pointer to the LibreOfficeKitClass vtable.
+    /// </summary>
     public IntPtr pClass;
 }
 
@@ -83,7 +76,9 @@ internal struct LibreOfficeKitClass
 [StructLayout(LayoutKind.Sequential)]
 internal struct LibreOfficeKitDocument
 {
-    /// <summary>Pointer to the LibreOfficeKitDocumentClass vtable.</summary>
+    /// <summary>
+    ///     Pointer to the LibreOfficeKitDocumentClass vtable.
+    /// </summary>
     public IntPtr pClass;
 }
 
@@ -95,10 +90,14 @@ internal struct LibreOfficeKitDocument
 internal struct LibreOfficeKitDocumentClass
 {
     #region Fields
-    /// <summary>Size of this struct in bytes.</summary>
+    /// <summary>
+    ///     Size of this struct in bytes.
+    /// </summary>
     public nuint nSize;
 
-    /// <summary>Function pointer: <c>void (*destroy)(LibreOfficeKitDocument* pThis)</c>.</summary>
+    /// <summary>
+    ///     Function pointer: <c>void (*destroy)(LibreOfficeKitDocument* pThis)</c>.
+    /// </summary>
     public IntPtr destroy;
 
     /// <summary>
@@ -108,7 +107,9 @@ internal struct LibreOfficeKitDocumentClass
     /// </summary>
     public IntPtr saveAs;
 
-    /// <summary>Function pointer: <c>int (*getDocumentType)(LibreOfficeKitDocument* pThis)</c>.</summary>
+    /// <summary>
+    ///     Function pointer: <c>int (*getDocumentType)(LibreOfficeKitDocument* pThis)</c>.
+    /// </summary>
     public IntPtr getDocumentType;
     #endregion
 }

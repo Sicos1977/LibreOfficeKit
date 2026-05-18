@@ -23,12 +23,6 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-// =============================================================================
-//
-// Represents a loaded LibreOffice document. Provides methods for saving
-// (converting) the document to different formats and querying document type.
-//
-// =============================================================================
 
 using System.Runtime.InteropServices;
 using LibreOfficeKit.Enums;
@@ -77,7 +71,7 @@ public sealed class LoDocument : IDisposable
     /// <returns><c>true</c> if the save operation succeeded; otherwise <c>false</c>.</returns>
     public bool SaveAs(string outputUrl, string format, string? filterOptions = null)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         if (_docClass.saveAs == IntPtr.Zero)
             throw new InvalidOperationException("saveAs function not available in this LibreOffice version.");
@@ -134,7 +128,7 @@ public sealed class LoDocument : IDisposable
     /// <returns>The <see cref="DocumentType" /> of this document.</returns>
     public DocumentType GetDocumentType()
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         if (_docClass.getDocumentType == IntPtr.Zero)
             throw new InvalidOperationException("getDocumentType function not available.");

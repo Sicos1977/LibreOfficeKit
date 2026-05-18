@@ -22,16 +22,10 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//
-// =============================================================================
-// 
-// Encapsulates the state and IPC channel for a single worker process.
-// Provides methods for sending requests, reading responses, pinging,
-// and shutting down a worker.
-//
-// =============================================================================
 
 using LibreOfficeKit.Protocols;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
 using System.IO.Pipes;
 
@@ -67,6 +61,9 @@ internal sealed class WorkerHandle
 
     /// <summary>Indicates whether the worker has been forcefully killed.</summary>
     private bool _killed;
+
+    /// <summary>Logger for this worker handle.</summary>
+    private readonly ILogger _logger;
     #endregion
 
     #region Properties
@@ -98,14 +95,16 @@ internal sealed class WorkerHandle
     /// <param name="pipeName">The named pipe identifier.</param>
     /// <param name="process">The OS process running the worker.</param>
     /// <param name="pipe">The named pipe server stream for IPC.</param>
-    public WorkerHandle(string pipeName, Process process, NamedPipeServerStream pipe)
+    /// <param name="logger">Optional logger.</param>
+    public WorkerHandle(string pipeName, Process process, NamedPipeServerStream pipe, ILogger? logger = null)
     {
         PipeName = pipeName;
         _process = process;
         _pipe = pipe;
-        _reader = new StreamReader(pipe, leaveOpen: true);
-        _writer = new StreamWriter(pipe, leaveOpen: true) { AutoFlush = true };
+        _reader = new StreamReader(pipe, System.Text.Encoding.UTF8, false, 4096, leaveOpen: true);
+        _writer = new StreamWriter(pipe, System.Text.Encoding.UTF8, 4096, leaveOpen: true) { AutoFlush = true };
         _idleSince = DateTime.UtcNow;
+        _logger = logger ?? NullLogger.Instance;
     }
     #endregion
 
@@ -148,17 +147,25 @@ internal sealed class WorkerHandle
         await _sendLock.WaitAsync();
         try
         {
+            _logger.LogDebug("Sending {RequestType} to worker '{PipeName}'", request.GetType().Name, PipeName);
             var json = IpcSerializer.Serialize(request);
             await _writer.WriteLineAsync(json);
 
             var response = await ReadResponseAsync(timeout.Value);
 
             if (response is T typed)
+            {
+                _logger.LogDebug("Received {ResponseType} from worker '{PipeName}'", typeof(T).Name, PipeName);
                 return typed;
+            }
 
             if (response is ErrorResponse err)
+            {
+                _logger.LogError("Worker '{PipeName}' returned error: {Error}", PipeName, err.Message);
                 throw new InvalidOperationException($"Worker error: {err.Message}");
+            }
 
+            _logger.LogError("Unexpected response type '{ResponseType}' from worker '{PipeName}'", response?.GetType().Name ?? "null", PipeName);
             throw new InvalidOperationException(
                 $"Unexpected response type: {response?.GetType().Name ?? "null"}");
         }
@@ -181,7 +188,15 @@ internal sealed class WorkerHandle
         using var cts = new CancellationTokenSource(timeout);
         try
         {
+#if NETSTANDARD2_0
+            var readTask = _reader.ReadLineAsync();
+            var delayTask = Task.Delay(timeout, cts.Token);
+            if (await Task.WhenAny(readTask, delayTask) == delayTask)
+                throw new TimeoutException("Worker did not respond in time.");
+            var line = await readTask;
+#else
             var line = await _reader.ReadLineAsync(cts.Token);
+#endif
             if (line == null) return null;
             return IpcSerializer.Deserialize<WorkerResponse>(line);
         }
@@ -209,8 +224,9 @@ internal sealed class WorkerHandle
             var response = await ReadResponseAsync(timeout);
             return response is PongResponse;
         }
-        catch
+        catch (Exception ex)
         {
+            _logger.LogDebug(ex, "Ping to worker '{PipeName}' failed", PipeName);
             return false;
         }
         finally
@@ -246,6 +262,8 @@ internal sealed class WorkerHandle
     {
         if (_killed) return;
         _killed = true;
+
+        _logger.LogDebug("Killing worker '{PipeName}'", PipeName);
 
         try
         {
@@ -287,7 +305,11 @@ internal sealed class WorkerHandle
         {
             if (!_process.HasExited)
             {
+#if NETSTANDARD2_0
+                _process.Kill();
+#else
                 _process.Kill(true);
+#endif
                 _process.WaitForExit(3000);
             }
         }

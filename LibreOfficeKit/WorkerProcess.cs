@@ -23,19 +23,10 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-// =============================================================================
-//
-// Worker mode entry point. When the executable is launched with:
-//   --worker <pipeName>
-// it connects to the named pipe server (hosted by the Converter) and enters
-// a request-response loop using the IPC protocol.
-//
-// Each worker process has its own LibreOfficeKit instance — this is safe
-// because each worker IS a separate OS process.
-//
-// =============================================================================
 
 using LibreOfficeKit.Protocols;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using System.IO.Pipes;
 
 namespace LibreOfficeKit;
@@ -52,41 +43,51 @@ public static class WorkerProcess
     ///     LibreOfficeKit, and enters the request-response loop.
     /// </summary>
     /// <param name="pipeName">The named pipe to connect to (created by <see cref="Converter" />).</param>
+    /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
-    public static async Task<int> RunAsync(string pipeName)
+    public static async Task<int> RunAsync(string pipeName, ILogger? logger = null)
     {
-        await using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+        logger ??= NullLogger.Instance;
+
+        using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         try
         {
+            logger.LogDebug("Connecting to pipe '{PipeName}'", pipeName);
             await pipeClient.ConnectAsync(10_000);
+            logger.LogDebug("Connected to pipe '{PipeName}'", pipeName);
         }
         catch (TimeoutException)
         {
-            await Console.Error.WriteLineAsync($"[Worker] Timeout connecting to pipe '{pipeName}'.");
+            logger.LogError("Timeout connecting to pipe '{PipeName}'", pipeName);
             return 1;
         }
 
-        using var reader = new StreamReader(pipeClient, leaveOpen: true);
-        await using var writer = new StreamWriter(pipeClient, leaveOpen: true);
+        using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, leaveOpen: true);
+        using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, leaveOpen: true);
         writer.AutoFlush = true;
 
         LibreOfficeInstance? office;
 
         try
         {
+            logger.LogInformation("Initializing LibreOffice instance");
             var installPath = LibreOfficeInstance.FindInstallPath();
             if (installPath == null)
             {
+                logger.LogError("LibreOffice installation not found");
                 await SendAsync(writer, new ErrorResponse("LibreOffice installation not found."));
                 return 1;
             }
 
+            logger.LogDebug("Found LibreOffice at '{InstallPath}'", installPath);
             office = LibreOfficeInstance.Create(installPath);
+            logger.LogInformation("LibreOffice initialized successfully");
             await SendAsync(writer, new ReadyResponse());
         }
         catch (Exception exception)
         {
+            logger.LogError(exception, "Failed to initialize LibreOffice");
             await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'"));
             return 1;
         }
@@ -115,14 +116,18 @@ public static class WorkerProcess
                 switch (request)
                 {
                     case PingRequest:
+                        logger.LogDebug("Received ping, sending pong");
                         await SendAsync(writer, new PongResponse());
                         break;
 
                     case ConvertRequest convert:
-                        await HandleConvertAsync(office, convert, writer);
+                        logger.LogInformation("Received conversion request: '{InputFile}' -> '{OutputFile}'",
+                            convert.InputFile, convert.OutputFile);
+                        await HandleConvertAsync(office, convert, writer, logger);
                         break;
 
                     case ShutdownRequest:
+                        logger.LogInformation("Received shutdown request. Exiting.");
                         await SendAsync(writer, new PongResponse());
                         return 0;
                 }
@@ -144,29 +149,34 @@ public static class WorkerProcess
     /// <param name="office">The active LibreOffice instance.</param>
     /// <param name="request">The conversion request containing input/output paths.</param>
     /// <param name="writer">The stream writer for sending the response.</param>
-    private static async Task HandleConvertAsync(
-        LibreOfficeInstance office, ConvertRequest request, StreamWriter writer)
+    /// <param name="logger">The logger for logging messages.</param>
+    private static async Task HandleConvertAsync(LibreOfficeInstance office, ConvertRequest request, StreamWriter writer, ILogger logger)
     {
         try
         {
+            logger.LogDebug("Loading document '{InputFile}'", request.InputFile);
             var inputUrl = LibreOfficeInstance.PathToFileUrl(request.InputFile);
             var outputUrl = LibreOfficeInstance.PathToFileUrl(request.OutputFile);
 
             using var document = office.DocumentLoad(inputUrl);
+            logger.LogDebug("Saving document as PDF to '{OutputFile}'", request.OutputFile);
             var success = document.SaveAs(outputUrl, "pdf");
 
             if (success)
             {
+                logger.LogInformation("Conversion succeeded: '{OutputFile}'", request.OutputFile);
                 await SendAsync(writer, new ConvertResponse(true));
             }
             else
             {
                 var error = office.GetError();
+                logger.LogError("Conversion failed for '{InputFile}': {Error}", request.InputFile, error ?? "SaveAs returned failure.");
                 await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure."));
             }
         }
         catch (Exception exception)
         {
+            logger.LogError(exception, "Exception during conversion of '{InputFile}'", request.InputFile);
             await SendAsync(writer, new ConvertResponse(false, exception.Message));
         }
     }

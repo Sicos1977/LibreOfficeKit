@@ -33,6 +33,10 @@
 
 using System.Runtime.InteropServices;
 
+#if !NETSTANDARD2_0
+using NativeLibrary = System.Runtime.InteropServices.NativeLibrary;
+#endif
+
 namespace LibreOfficeKit;
 
 /// <summary>
@@ -127,10 +131,10 @@ public sealed class LibreOfficeInstance : IDisposable
             if (!Directory.Exists(installPath))
                 throw new DirectoryNotFoundException($"LibreOffice install path not found: {installPath}");
 
-            if (OperatingSystem.IsWindows())
+            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
             {
                 var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-                if (!currentPath.Contains(installPath, StringComparison.OrdinalIgnoreCase))
+                if (currentPath.IndexOf(installPath, StringComparison.OrdinalIgnoreCase) < 0)
                     Environment.SetEnvironmentVariable("PATH", $"{installPath};{currentPath}");
             }
 
@@ -206,8 +210,8 @@ public sealed class LibreOfficeInstance : IDisposable
     /// <returns>An array of library file names.</returns>
     private static string[] GetLibraryNames()
     {
-        if (OperatingSystem.IsWindows()) return WindowsLibs;
-        return OperatingSystem.IsMacOS() ? MacosLibs : LinuxLibs;
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows)) return WindowsLibs;
+        return RuntimeInformation.IsOSPlatform(OSPlatform.OSX) ? MacosLibs : LinuxLibs;
     }
     #endregion
 
@@ -226,31 +230,31 @@ public sealed class LibreOfficeInstance : IDisposable
 
         string[] knownPaths;
 
-        if (OperatingSystem.IsLinux())
-            knownPaths =
-            [
+        if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
+            knownPaths = new[]
+            {
                 "/usr/lib64/libreoffice/program",
                 "/usr/lib/libreoffice/program"
-            ];
-        else if (OperatingSystem.IsMacOS())
-            knownPaths =
-            [
+            };
+        else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
+            knownPaths = new[]
+            {
                 "/usr/lib64/libreoffice/program",
                 "/usr/lib/libreoffice/program",
                 "/Applications/LibreOffice.app/Contents/Frameworks"
-            ];
+            };
         else
-            knownPaths =
-            [
+            knownPaths = new[]
+            {
                 @"C:\Program Files\LibreOffice\program",
                 @"C:\Program Files (x86)\LibreOffice\program"
-            ];
+            };
 
         foreach (var path in knownPaths)
             if (Directory.Exists(path))
                 return path;
 
-        if (!OperatingSystem.IsLinux() && !OperatingSystem.IsMacOS()) return null;
+        if (!RuntimeInformation.IsOSPlatform(OSPlatform.Linux) && !RuntimeInformation.IsOSPlatform(OSPlatform.OSX)) return null;
         var optPath = FindOptLatest();
         return optPath ?? null;
     }
@@ -272,7 +276,7 @@ public sealed class LibreOfficeInstance : IDisposable
         {
             var dirName = Path.GetFileName(dir);
             var versionStr = dirName.StartsWith("libreoffice")
-                ? dirName["libreoffice".Length..]
+                ? dirName.Substring("libreoffice".Length)
                 : null;
 
             if (versionStr == null || !Version.TryParse(versionStr, out var version))
@@ -284,7 +288,7 @@ public sealed class LibreOfficeInstance : IDisposable
         }
 
         installs.Sort((a, b) => a.version.CompareTo(b.version));
-        return installs.Count > 0 ? installs[^1].path : null;
+        return installs.Count > 0 ? installs[installs.Count - 1].path : null;
     }
     #endregion
 
@@ -311,7 +315,7 @@ public sealed class LibreOfficeInstance : IDisposable
     /// <exception cref="InvalidOperationException">Thrown when the document cannot be loaded.</exception>
     public LoDocument DocumentLoad(string fileUrl)
     {
-        ObjectDisposedException.ThrowIf(_disposed, this);
+        if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         if (_officeClass.documentLoad == IntPtr.Zero)
             throw new InvalidOperationException("documentLoad function not available.");
