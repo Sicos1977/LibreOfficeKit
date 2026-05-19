@@ -612,9 +612,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         if (entryAssembly != null && File.Exists(entryAssembly))
             return $"dotnet \"{entryAssembly}\"";
 
-        throw new InvalidOperationException(
-            "Cannot determine the worker executable path. " +
-            "Ensure the application is published or run via 'dotnet run'.");
+        throw new InvalidOperationException("Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
     }
     #endregion
 

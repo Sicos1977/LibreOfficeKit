@@ -35,143 +35,175 @@
 // each with its own isolated LibreOfficeKit instance.
 // =============================================================================
 
-using LibreOfficeKit;
+namespace LibreOfficeKit.Console;
 
-// ── Worker mode: launched by the Converter class ──────────────────────────────
-if (args is ["--worker", _, ..])
+/// <summary>
+///    Console application entry point. Supports both normal mode (demonstrating the Converter)
+/// </summary>
+internal static class Program
 {
-    var pipeName = args[1];
-    return await WorkerProcess.RunAsync(pipeName);
-}
-
-// ── Normal mode: demonstrate the Converter ────────────────────────────────────
-Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
-Console.WriteLine("  Multi-process pool architecture with hot standby");
-Console.WriteLine();
-
-// Example: convert using the legacy single-instance approach
-if (args is ["--direct", _, ..]) return RunDirectConversion(args[1], args.Length > 2 ? args[2] : null);
-
-// Example: convert using the Converter pool
-if (args.Length >= 1 && args[0] != "--worker")
-{
-    var inputFile = args[0];
-    var outputFile = args.Length > 1
-        ? args[1]
-        : Path.ChangeExtension(inputFile, ".pdf");
-
-    return await RunPoolConversionAsync(inputFile, outputFile);
-}
-
-// No arguments — show usage
-Console.WriteLine("Usage:");
-Console.WriteLine("  LibreOfficeKit.Console <input> [output]            Convert using worker pool");
-Console.WriteLine("  LibreOfficeKit.Console --direct <input> [output]   Convert directly (single process)");
-Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName>         (internal: worker mode)");
-return 0;
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Pool-based conversion (recommended)
-// ═══════════════════════════════════════════════════════════════════════════════
-static async Task<int> RunPoolConversionAsync(string inputFile, string outputFile)
-{
-    if (!File.Exists(inputFile))
+    #region Main
+    /// <summary>
+    ///     The application entry point for the LibreOffice document to PDF converter. Determines the mode of operation
+    ///     based on command-line arguments and initiates the appropriate conversion workflow.
+    /// </summary>
+    /// <remarks>
+    ///     In normal mode, the application converts documents using a worker pool. The '--direct'
+    ///     argument performs conversion in a single process, while '--worker' is used internally for worker processes. If
+    ///     no arguments are provided, usage instructions are displayed.
+    /// </remarks>
+    /// <param name="args">The command-line arguments that control the application's behavior. Supported arguments include input and output
+    ///     file paths, '--direct' for direct conversion, and '--worker' for internal worker mode.
+    /// </param>
+    /// <returns>
+    ///     A task that represents the asynchronous operation. The task result contains the process exit code: 0 for
+    ///     success, or a non-zero value if an error occurs.
+    /// </returns>
+    private static async Task<int> Main(string[] args)
     {
-        Console.Error.WriteLine($"ERROR: Input file not found: {inputFile}");
-        return 1;
-    }
+        if (args is ["--worker", _, ..])
+            return await WorkerProcess.RunAsync(args[1]);
 
-    Console.WriteLine($"  Input:  {inputFile}");
-    Console.WriteLine($"  Output: {outputFile}");
-    Console.WriteLine();
+        System.Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
+        System.Console.WriteLine("  Multi-process pool architecture with hot standby");
+        System.Console.WriteLine();
 
-    try
-    {
-        await using var converter = new Converter(
-            4,
-            2,
-            TimeSpan.FromMinutes(5));
+        if (args is ["--direct", _, ..])
+            return RunDirectConversion(args[1], args.Length > 2 ? args[2] : null);
 
-        Console.Write("Converting to PDF (via worker pool)... ");
-
-        await converter.ConvertToPdfAsync(inputFile, outputFile);
-
-        Console.WriteLine("OK");
-
-        if (File.Exists(outputFile))
+        if (args.Length >= 1)
         {
-            var fileInfo = new FileInfo(outputFile);
-            Console.WriteLine("\n  PDF created successfully!");
-            Console.WriteLine($"  Output: {outputFile}");
-            Console.WriteLine($"  Size:   {fileInfo.Length:N0} bytes");
+            var inputFile = args[0];
+            var outputFile = args.Length > 1
+                ? args[1]
+                : Path.ChangeExtension(inputFile, ".pdf");
+
+            return await RunPoolConversionAsync(inputFile, outputFile);
         }
 
+        // No arguments — show usage
+        System.Console.WriteLine("Usage:");
+        System.Console.WriteLine("  LibreOfficeKit.Console <input> [output]            Convert using worker pool");
+        System.Console.WriteLine("  LibreOfficeKit.Console --direct <input> [output]   Convert directly (single process)");
+        System.Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName>         (internal: worker mode)");
         return 0;
     }
-    catch (Exception ex)
+    #endregion
+
+    #region RunPoolConversionAsync
+    /// <summary>
+    ///    Runs the document conversion using the Converter class, which manages a pool of worker processes. This method initializes the converter,
+    ///    performs the conversion, and handles any errors that may occur during the process.
+    /// </summary>
+    /// <param name="inputFile">The path to the input document file.</param>
+    /// <param name="outputFile">The path to the output PDF file.</param>
+    /// <returns>A task that represents the asynchronous operation. The task result contains the process exit code: 0 for success, or a non-zero value if an error occurs.</returns>
+    private static async Task<int> RunPoolConversionAsync(string inputFile, string outputFile)
     {
-        Console.Error.WriteLine($"FAILED\n  Error: {ex.Message}");
-        return 1;
-    }
-}
-
-// ═══════════════════════════════════════════════════════════════════════════════
-// Direct single-instance conversion (legacy, kept for reference)
-// ═══════════════════════════════════════════════════════════════════════════════
-static int RunDirectConversion(string inputFile, string? outputFile)
-{
-    outputFile ??= Path.ChangeExtension(inputFile, ".pdf");
-
-    try
-    {
-        Console.Write("Searching for LibreOffice installation... ");
-        var installPath = LibreOfficeInstance.FindInstallPath();
-        if (installPath == null)
-        {
-            Console.Error.WriteLine("FAILED — LibreOffice not found.");
-            return 1;
-        }
-
-        Console.WriteLine($"OK ({installPath})");
-
         if (!File.Exists(inputFile))
         {
-            Console.Error.WriteLine($"ERROR: Input file not found: {inputFile}");
+            await System.Console.Error.WriteLineAsync($"ERROR: Input file not found: '{inputFile}'");
             return 1;
         }
 
-        var inputUrl = LibreOfficeInstance.PathToFileUrl(inputFile);
-        var outputUrl = LibreOfficeInstance.PathToFileUrl(outputFile);
+        System.Console.WriteLine($"  Input:  '{inputFile}'");
+        System.Console.WriteLine($"  Output: '{outputFile}'");
+        System.Console.WriteLine();
 
-        Console.Write("Initializing LibreOffice... ");
-        using var office = LibreOfficeInstance.Create(installPath);
-        Console.WriteLine("OK");
-
-        Console.Write("Loading document... ");
-        using var document = office.DocumentLoad(inputUrl);
-        Console.WriteLine("OK");
-
-        Console.Write("Converting to PDF... ");
-        var success = document.SaveAs(outputUrl, "pdf");
-
-        if (success)
+        try
         {
-            Console.WriteLine("OK");
+            await using var converter = new Converter(4, 2, TimeSpan.FromMinutes(5));
+
+            System.Console.Write("Converting to PDF (via worker pool)... ");
+
+            await converter.ConvertToPdfAsync(inputFile, outputFile);
+
+            System.Console.WriteLine("OK");
+
             if (!File.Exists(outputFile)) return 0;
-            var fi = new FileInfo(outputFile);
-            Console.WriteLine($"\n  Output: {outputFile} ({fi.Length:N0} bytes)");
+            var fileInfo = new FileInfo(outputFile);
+            System.Console.WriteLine("\n  PDF created successfully!");
+            System.Console.WriteLine($"  Output: '{outputFile}'");
+            System.Console.WriteLine($"  Size:   {fileInfo.Length:N0} bytes");
 
             return 0;
         }
+        catch (Exception ex)
+        {
+            await System.Console.Error.WriteLineAsync($"FAILED\n  Error: '{ex.Message}'");
+            return 1;
+        }
+    }
+    #endregion
 
-        Console.Error.WriteLine("FAILED");
-        var err = office.GetError();
-        if (err != null) Console.Error.WriteLine($"  Error: {err}");
-        return 1;
-    }
-    catch (Exception ex)
+    #region RunDirectConversion
+    /// <summary>
+    ///     Converts the specified input file to PDF format using a direct LibreOffice invocation.
+    /// </summary>
+    /// <remarks>
+    ///     This method requires LibreOffice to be installed and accessible on the system. If LibreOffice
+    ///     is not found or the input file does not exist, the method returns 1. Any errors encountered during conversion
+    ///     are written to the standard error stream.
+    /// </remarks>
+    /// <param name="inputFile">The path to the input file to be converted. Must refer to an existing file.</param>
+    /// <param name="outputFile">The path where the output PDF file will be saved. If null, the output file will have the same name as the input file with a .pdf extension.</param>
+    /// <returns>0 if the conversion succeeds; otherwise, 1.</returns>
+    private static int RunDirectConversion(string inputFile, string? outputFile)
     {
-        Console.Error.WriteLine($"\nERROR: {ex.Message}");
-        return 1;
+        outputFile ??= Path.ChangeExtension(inputFile, ".pdf");
+
+        try
+        {
+            System.Console.Write("Searching for LibreOffice installation... ");
+            var installPath = LibreOfficeInstance.FindInstallPath();
+            if (installPath == null)
+            {
+                System.Console.Error.WriteLine("FAILED — LibreOffice not found.");
+                return 1;
+            }
+
+            System.Console.WriteLine($"OK '{installPath}'");
+
+            if (!File.Exists(inputFile))
+            {
+                System.Console.Error.WriteLine($"ERROR: Input file not found: '{inputFile}'");
+                return 1;
+            }
+
+            var inputUrl = LibreOfficeInstance.PathToFileUrl(inputFile);
+            var outputUrl = LibreOfficeInstance.PathToFileUrl(outputFile);
+
+            System.Console.Write("Initializing LibreOffice... ");
+            using var office = LibreOfficeInstance.Create(installPath);
+            System.Console.WriteLine("OK");
+
+            System.Console.Write("Loading document... ");
+            using var document = office.DocumentLoad(inputUrl);
+            System.Console.WriteLine("OK");
+
+            System.Console.Write("Converting to PDF... ");
+            var success = document.SaveAs(outputUrl, "pdf");
+
+            if (success)
+            {
+                System.Console.WriteLine("OK");
+                if (!File.Exists(outputFile)) return 0;
+                var fileInfo = new FileInfo(outputFile);
+                System.Console.WriteLine($"\n  Output: '{outputFile}' ({fileInfo.Length:N0} bytes)");
+                return 0;
+            }
+
+            System.Console.Error.WriteLine("FAILED");
+            var error = office.GetError();
+            if (error != null)
+                System.Console.Error.WriteLine($"  Error: '{error}'");
+            return 1;
+        }
+        catch (Exception exception)
+        {
+            System.Console.Error.WriteLine($"\nERROR: '{exception.Message}'");
+            return 1;
+        }
     }
+    #endregion
 }
