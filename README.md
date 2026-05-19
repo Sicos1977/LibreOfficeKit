@@ -143,6 +143,12 @@ dotnet run --project src/LibreOfficeKit.Console -- --direct input.docx output.pd
 - [.NET 10 SDK](https://dotnet.microsoft.com/download)
 - [LibreOffice](https://www.libreoffice.org/) installed
 
+## Documentation
+
+The full API reference is published automatically to GitHub Pages on every push to `main`:
+
+**[https://sicos1977.github.io/LibreOfficeKit](https://sicos1977.github.io/LibreOfficeKit)**
+
 ## Build
 
 ```bash
