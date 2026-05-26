@@ -25,6 +25,7 @@
 //
 
 using System.Runtime.InteropServices;
+using LibreOfficeKit.Bindings;
 using LibreOfficeKit.Enums;
 // ReSharper disable UnusedMember.Global
 

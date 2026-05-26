@@ -92,7 +92,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     /// <summary>
     ///     Collection of idle workers available for use.
     /// </summary>
-    private readonly ConcurrentBag<WorkerHandle> _availableWorkers = new();
+    private readonly ConcurrentBag<WorkerHandle> _availableWorkers = [];
 
     /// <summary>
     ///     Dictionary of all active workers keyed by pipe name.
@@ -358,12 +358,8 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     private async Task<WorkerHandle?> SpawnWorkerAsync()
     {
         var pipeName = $"lok_worker_{Guid.NewGuid():N}";
-
-        var pipeServer = new NamedPipeServerStream(
-            pipeName, PipeDirection.InOut, 1,
-            PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
-
-        var psi = new ProcessStartInfo
+        var pipeServer = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+        var processStartInfo = new ProcessStartInfo
         {
             FileName = _workerExePath,
             Arguments = $"--worker {pipeName}",
@@ -378,7 +374,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         try
         {
-            process = Process.Start(psi);
+            process = Process.Start(processStartInfo);
             if (process == null)
             {
                 _logger.LogError("Failed to start worker process for pipe '{PipeName}'", pipeName);
@@ -418,17 +414,17 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                     _logger.LogInformation("Worker spawned and ready: pipe '{PipeName}', PID '{Pid}'", pipeName, process.Id);
                     return handle;
 
-                case ErrorResponse err:
-                    _logger.LogError("Worker init error on pipe '{PipeName}': '{Error}'", pipeName, err.Message);
+                case ErrorResponse errorResponse:
+                    _logger.LogError("Worker init error on pipe '{PipeName}': '{Error}'", pipeName, errorResponse.Message);
                     break;
             }
 
             handle.Kill();
             return null;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _logger.LogError(ex, "Failed to spawn worker for pipe '{PipeName}'", pipeName);
+            _logger.LogError(exception, "Failed to spawn worker for pipe '{PipeName}'", pipeName);
             try
             {
                 process.Kill();
@@ -548,9 +544,9 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                         _logger.LogDebug("Worker '{PipeName}' ping OK.", worker.PipeName);
                     }
                 }
-                catch (Exception ex)
+                catch (Exception exception)
                 {
-                    _logger.LogError(ex, "Worker '{PipeName}' ping threw an exception. Recycling.", worker.PipeName);
+                    _logger.LogError(exception, "Worker '{PipeName}' ping threw an exception. Recycling.", worker.PipeName);
                     RemoveWorker(worker);
                 }
             }
@@ -559,9 +555,9 @@ public sealed class Converter : IDisposable, IAsyncDisposable
             {
                 await EnsureHotStandbyAsync();
             }
-            catch (Exception ex)
+            catch (Exception exception)
             {
-                _logger.LogError(ex, "Error ensuring hot standby");
+                _logger.LogError(exception, "Error ensuring hot standby");
             }
         }
     }
@@ -620,14 +616,12 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         var entryAssembly = Assembly.GetEntryAssembly();
         
         if (entryAssembly == null)
-            throw new InvalidOperationException(
-                "Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
+            throw new InvalidOperationException("Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
 
         var entryLocation = entryAssembly.Location;
         
         if (string.IsNullOrEmpty(entryLocation) || !File.Exists(entryLocation))
-            throw new InvalidOperationException(
-                "Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
+            throw new InvalidOperationException("Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
         
         var currentExeName = Path.GetFileNameWithoutExtension(entryLocation);
 
@@ -670,7 +664,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _disposed = true;
+        var timeout = TimeSpan.FromSeconds(5);
 
         _cancellationTokenSource.Cancel();
 
@@ -678,7 +672,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         {
             try
             {
-                kvp.Value.SendShutdownAsync().Wait(TimeSpan.FromSeconds(3));
+                kvp.Value.SendShutdownAsync().Wait(timeout);
             }
             catch
             {
@@ -692,7 +686,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         try
         {
-            _healthMonitorTask.Wait(TimeSpan.FromSeconds(5));
+            _healthMonitorTask.Wait(timeout);
         }
         catch
         {
@@ -701,7 +695,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         try
         {
-            _idleMonitorTask.Wait(TimeSpan.FromSeconds(5));
+            _idleMonitorTask.Wait(timeout);
         }
         catch
         {
@@ -711,6 +705,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         _cancellationTokenSource.Dispose();
         _poolSemaphore.Dispose();
         _workerAvailable.Dispose();
+        _disposed = true;
     }
     #endregion
 
@@ -722,7 +717,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        _disposed = true;
+        var timeout = TimeSpan.FromSeconds(5);
 
         await _cancellationTokenSource.CancelAsync();
 
@@ -731,7 +726,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                 try
                 {
                     await kvp.Value.SendShutdownAsync();
-                    await Task.Delay(500);
+                    await Task.Delay(10);
                 }
                 catch
                 {
@@ -743,13 +738,13 @@ public sealed class Converter : IDisposable, IAsyncDisposable
             .ToList();
 
         if (shutdownTasks.Count > 0)
-            await Task.WhenAll(shutdownTasks).WaitAsync(TimeSpan.FromSeconds(10));
+            await Task.WhenAll(shutdownTasks).WaitAsync(timeout);
 
         _allWorkers.Clear();
 
         try
         {
-            await _healthMonitorTask.WaitAsync(TimeSpan.FromSeconds(5));
+            await _healthMonitorTask.WaitAsync(timeout);
         }
         catch
         {
@@ -758,7 +753,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         try
         {
-            await _idleMonitorTask.WaitAsync(TimeSpan.FromSeconds(5));
+            await _idleMonitorTask.WaitAsync(timeout);
         }
         catch
         {
@@ -768,6 +763,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         _cancellationTokenSource.Dispose();
         _poolSemaphore.Dispose();
         _workerAvailable.Dispose();
+        _disposed = true;
     }
     #endregion
 #endif

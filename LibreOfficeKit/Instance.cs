@@ -31,6 +31,7 @@
 // time since LOK is NOT thread-safe.
 // =============================================================================
 
+using LibreOfficeKit.Bindings;
 using System.Runtime.InteropServices;
 
 #if !NETSTANDARD2_0

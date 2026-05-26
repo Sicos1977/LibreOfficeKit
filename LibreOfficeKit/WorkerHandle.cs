@@ -224,7 +224,7 @@ internal sealed class WorkerHandle
             var response = await ReadResponseAsync(timeout);
             return response is PongResponse;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
             _logger.LogDebug(ex, "Ping to worker '{PipeName}' failed", PipeName);
             return false;
