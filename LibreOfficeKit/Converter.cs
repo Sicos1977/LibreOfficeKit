@@ -68,9 +68,9 @@ namespace LibreOfficeKit;
 ///       - IDisposable: proper cleanup of all workers and resources
 /// </remarks>
 #if NETSTANDARD2_0
-public sealed class Converter : IDisposable
+public class Converter : IDisposable
 #else
-public sealed class Converter : IDisposable, IAsyncDisposable
+public class Converter : IDisposable, IAsyncDisposable
 #endif
 {
     #region Fields
@@ -147,14 +147,16 @@ public sealed class Converter : IDisposable, IAsyncDisposable
     private bool _disposed;
 
     /// <summary>
-    ///     Path to the worker executable.
-    /// </summary>
-    private readonly string _workerExePath;
-
-    /// <summary>
     ///     Logger for this instance.
     /// </summary>
     private readonly ILogger<Converter> _logger;
+    #endregion
+
+    #region Properties
+    /// <summary>
+    ///     Path to the worker executable. Can be overridden for testing purposes.
+    /// </summary>
+    protected virtual string? WorkerExePath { get; set; }
     #endregion
 
     #region Converter
@@ -183,7 +185,8 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         _poolSemaphore = new SemaphoreSlim(maxInstances, maxInstances);
         _workerAvailable = new SemaphoreSlim(0, maxInstances);
 
-        _workerExePath = ResolveWorkerExePath();
+        if (!string.IsNullOrWhiteSpace(WorkerExePath))
+            WorkerExePath = ResolveWorkerExePath();
 
         _logger.LogInformation("Converter initialized: maxInstances={MaxInstances}, minHotStandby={MinHotStandby}, idleTimeout={IdleTimeout}", maxInstances, minHotStandby, idleTimeout);
 
@@ -361,7 +364,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
         var pipeServer = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         var processStartInfo = new ProcessStartInfo
         {
-            FileName = _workerExePath,
+            FileName = WorkerExePath,
             Arguments = $"--worker {pipeName}",
             UseShellExecute = false,
             CreateNoWindow = true,

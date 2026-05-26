@@ -314,7 +314,7 @@ public class ConverterTests
         var tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         _tempDirectory = new DirectoryInfo(tempDirectory);
         _tempDirectory.Create();
-        _converter = new Converter(2, 1, new TimeSpan(0, 5, 0));
+        _converter = new TestConverter(2, 1, new TimeSpan(0, 5, 0), @"..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe");
     }
 
     [TestCleanup]

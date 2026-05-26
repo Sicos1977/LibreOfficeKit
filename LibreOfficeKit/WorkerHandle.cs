@@ -226,7 +226,7 @@ internal sealed class WorkerHandle
         }
         catch (Exception exception)
         {
-            _logger.LogDebug(ex, "Ping to worker '{PipeName}' failed", PipeName);
+            _logger.LogDebug(exception, "Ping to worker '{PipeName}' failed", PipeName);
             return false;
         }
         finally
