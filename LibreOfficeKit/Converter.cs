@@ -45,6 +45,8 @@ using System.Collections.Concurrent;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Reflection;
+using System.Runtime.InteropServices;
+
 // ReSharper disable UnusedMember.Global
 
 namespace LibreOfficeKit;
@@ -183,8 +185,7 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         _workerExePath = ResolveWorkerExePath();
 
-        _logger.LogInformation("Converter initialized: maxInstances={MaxInstances}, minHotStandby={MinHotStandby}, idleTimeout={IdleTimeout}",
-            maxInstances, minHotStandby, idleTimeout);
+        _logger.LogInformation("Converter initialized: maxInstances={MaxInstances}, minHotStandby={MinHotStandby}, idleTimeout={IdleTimeout}", maxInstances, minHotStandby, idleTimeout);
 
         for (var i = 0; i < minHotStandby; i++)
             SpawnWorkerAsync().ContinueWith(t =>
@@ -223,13 +224,13 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
         await ExecuteOnWorkerAsync(async worker =>
         {
-            _logger.LogDebug("Dispatching conversion to worker {PipeName}", worker.PipeName);
+            _logger.LogDebug("Dispatching conversion to worker '{PipeName}", worker.PipeName);
             var request = new ConvertRequest(inputFile, outputFile);
             var response = await worker.SendRequestAsync<ConvertResponse>(request);
 
             if (!response.Success)
             {
-                _logger.LogError("PDF conversion failed for '{InputFile}': {Error}", inputFile, response.Error ?? "Unknown error");
+                _logger.LogError("PDF conversion failed for '{InputFile}': '{Error}'", inputFile, response.Error ?? "Unknown error");
                 throw new InvalidOperationException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
             }
 
@@ -381,14 +382,22 @@ public sealed class Converter : IDisposable, IAsyncDisposable
             if (process == null)
             {
                 _logger.LogError("Failed to start worker process for pipe '{PipeName}'", pipeName);
+#if (NETSTANDARD2_0)
                 pipeServer.Dispose();
+#else
+                await pipeServer.DisposeAsync();
+#endif
                 return null;
             }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _logger.LogError(ex, "Exception starting worker process for pipe '{PipeName}'", pipeName);
+            _logger.LogError(exception, "Exception starting worker process for pipe '{PipeName}'", pipeName);
+#if (NETSTANDARD2_0)
             pipeServer.Dispose();
+#else
+            await pipeServer.DisposeAsync();
+#endif
             return null;
         }
 
@@ -406,11 +415,11 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                 case ReadyResponse:
                     _allWorkers[pipeName] = handle;
                     handle.MarkIdle();
-                    _logger.LogInformation("Worker spawned and ready: pipe '{PipeName}', PID {Pid}", pipeName, process.Id);
+                    _logger.LogInformation("Worker spawned and ready: pipe '{PipeName}', PID '{Pid}'", pipeName, process.Id);
                     return handle;
 
                 case ErrorResponse err:
-                    _logger.LogError("Worker init error on pipe '{PipeName}': {Error}", pipeName, err.Message);
+                    _logger.LogError("Worker init error on pipe '{PipeName}': '{Error}'", pipeName, err.Message);
                     break;
             }
 
@@ -429,7 +438,11 @@ public sealed class Converter : IDisposable, IAsyncDisposable
                 // ignored
             }
 
+#if (NETSTANDARD2_0)
             pipeServer.Dispose();
+#else
+            await pipeServer.DisposeAsync();
+#endif
             return null;
         }
     }
@@ -596,23 +609,39 @@ public sealed class Converter : IDisposable, IAsyncDisposable
 
     #region ResolveWorkerExePath
     /// <summary>
-    ///     Resolves the path to the current executable, used to spawn workers in <c>--worker</c> mode.
+    ///     Resolves the path to the worker console executable.
+    ///     Tries to locate LibreOfficeKit.Console in the same directory as the entry assembly,
+    ///     then falls back to using 'dotnet' with the assembly path.
     /// </summary>
-    /// <returns>The executable path string.</returns>
+    /// <returns>The worker executable path string.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the path cannot be determined.</exception>
     private static string ResolveWorkerExePath()
     {
-#if !NETSTANDARD2_0
-        var processPath = Environment.ProcessPath;
-        if (processPath != null && File.Exists(processPath))
-            return processPath;
-#endif
+        var entryAssembly = Assembly.GetEntryAssembly();
+        
+        if (entryAssembly == null)
+            throw new InvalidOperationException(
+                "Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
 
-        var entryAssembly = Assembly.GetEntryAssembly()?.Location;
-        if (entryAssembly != null && File.Exists(entryAssembly))
-            return $"dotnet \"{entryAssembly}\"";
+        var entryLocation = entryAssembly.Location;
+        
+        if (string.IsNullOrEmpty(entryLocation) || !File.Exists(entryLocation))
+            throw new InvalidOperationException(
+                "Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
+        
+        var currentExeName = Path.GetFileNameWithoutExtension(entryLocation);
 
-        throw new InvalidOperationException("Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
+        // If running the console app directly, use it
+        if (currentExeName.Equals("LibreOfficeKit.Console", StringComparison.OrdinalIgnoreCase))
+            return entryLocation;
+
+        // Look for console app in the same directory
+        var directory = Path.GetDirectoryName(entryLocation);
+        if (directory == null) return $"dotnet \"{entryLocation}\"";
+        var consoleExeName = "LibreOfficeKit.Console" + (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".exe" : string.Empty);
+        var consoleExePath = Path.Combine(directory, consoleExeName);
+
+        return File.Exists(consoleExePath) ? consoleExePath : $"dotnet \"{entryLocation}\"";
     }
     #endregion
 
