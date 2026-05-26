@@ -67,12 +67,12 @@ public static class WorkerProcess
         using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, leaveOpen: true);
         writer.AutoFlush = true;
 
-        LibreOfficeInstance? office;
+        Instance? office;
 
         try
         {
             logger.LogInformation("Initializing LibreOffice instance");
-            var installPath = LibreOfficeInstance.FindInstallPath();
+            var installPath = Instance.FindInstallPath();
             if (installPath == null)
             {
                 logger.LogError("LibreOffice installation not found");
@@ -81,7 +81,7 @@ public static class WorkerProcess
             }
 
             logger.LogDebug("Found LibreOffice at '{InstallPath}'", installPath);
-            office = LibreOfficeInstance.Create(installPath);
+            office = Instance.Create(installPath);
             logger.LogInformation("LibreOffice initialized successfully");
             await SendAsync(writer, new ReadyResponse());
         }
@@ -150,13 +150,13 @@ public static class WorkerProcess
     /// <param name="request">The conversion request containing input/output paths.</param>
     /// <param name="writer">The stream writer for sending the response.</param>
     /// <param name="logger">The logger for logging messages.</param>
-    private static async Task HandleConvertAsync(LibreOfficeInstance office, ConvertRequest request, StreamWriter writer, ILogger logger)
+    private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer, ILogger logger)
     {
         try
         {
             logger.LogDebug("Loading document '{InputFile}'", request.InputFile);
-            var inputUrl = LibreOfficeInstance.PathToFileUrl(request.InputFile);
-            var outputUrl = LibreOfficeInstance.PathToFileUrl(request.OutputFile);
+            var inputUrl = Instance.PathToFileUrl(request.InputFile);
+            var outputUrl = Instance.PathToFileUrl(request.OutputFile);
 
             using var document = office.DocumentLoad(inputUrl);
             logger.LogDebug("Saving document as PDF to '{OutputFile}'", request.OutputFile);

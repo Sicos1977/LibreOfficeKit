@@ -1,5 +1,5 @@
 //
-// LoDocument.cs
+// Document.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -34,7 +34,7 @@ namespace LibreOfficeKit;
 ///     Represents a loaded LibreOffice document.
 ///     Provides methods for saving/converting the document and querying its type.
 /// </summary>
-public sealed class LoDocument : IDisposable
+public sealed class Document : IDisposable
 {
     #region Fields
     /// <summary>Pointer to the native LibreOfficeKitDocument instance.</summary>
@@ -49,10 +49,10 @@ public sealed class LoDocument : IDisposable
 
     #region LoDocument
     /// <summary>
-    ///     Initializes a new instance of <see cref="LoDocument" /> wrapping the given native document pointer.
+    ///     Initializes a new instance of <see cref="Document" /> wrapping the given native document pointer.
     /// </summary>
     /// <param name="pDocument">Pointer to the native LibreOfficeKitDocument.</param>
-    internal LoDocument(IntPtr pDocument)
+    internal Document(IntPtr pDocument)
     {
         _pDocument = pDocument;
 
@@ -108,6 +108,7 @@ public sealed class LoDocument : IDisposable
     {
         return SaveAs(outputUrl, format.ToFormatString(), filterOptions);
     }
+
     /// <summary>
     ///     Saves the document as PDF using detailed <see cref="PdfOptions" />.
     /// </summary>

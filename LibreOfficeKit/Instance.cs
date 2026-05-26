@@ -1,5 +1,5 @@
 //
-// LibreOfficeInstance.cs
+// Instance.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -43,7 +43,7 @@ namespace LibreOfficeKit;
 ///     Main LibreOffice instance managing the LOK lifecycle.
 ///     Only one instance may be active at a time within a single process.
 /// </summary>
-public sealed class LibreOfficeInstance : IDisposable
+public sealed class Instance : IDisposable
 {
     #region Fields
     /// <summary>
@@ -94,11 +94,11 @@ public sealed class LibreOfficeInstance : IDisposable
 
     #region LibreOfficeInstance
     /// <summary>
-    ///     Initializes a new instance of <see cref="LibreOfficeInstance" /> from native pointers.
+    ///     Initializes a new instance of <see cref="Instance" /> from native pointers.
     /// </summary>
     /// <param name="pOffice">Pointer to the native LibreOfficeKit instance.</param>
     /// <param name="libraryHandle">Handle to the loaded native library.</param>
-    private LibreOfficeInstance(IntPtr pOffice, IntPtr libraryHandle)
+    private Instance(IntPtr pOffice, IntPtr libraryHandle)
     {
         _pOffice = pOffice;
         _libraryHandle = libraryHandle;
@@ -115,10 +115,10 @@ public sealed class LibreOfficeInstance : IDisposable
     ///     and verifies that no initialization errors occurred.
     /// </summary>
     /// <param name="installPath">Absolute path to the LibreOffice program directory.</param>
-    /// <returns>A new <see cref="LibreOfficeInstance" />.</returns>
+    /// <returns>A new <see cref="Instance" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when an instance is already active or initialization fails.</exception>
     /// <exception cref="DirectoryNotFoundException">Thrown when the install path does not exist.</exception>
-    public static LibreOfficeInstance Create(string installPath)
+    public static Instance Create(string installPath)
     {
         lock (GlobalLock)
         {
@@ -167,7 +167,7 @@ public sealed class LibreOfficeInstance : IDisposable
 
             _instanceActive = true;
 
-            var instance = new LibreOfficeInstance(pOffice, libraryHandle);
+            var instance = new Instance(pOffice, libraryHandle);
 
             var initError = instance.GetError();
             if (initError == null) return instance;
@@ -311,9 +311,9 @@ public sealed class LibreOfficeInstance : IDisposable
     ///     Loads a document from the given file URL.
     /// </summary>
     /// <param name="fileUrl">The <c>file://</c> URL of the document to load.</param>
-    /// <returns>A <see cref="LoDocument" /> representing the loaded document.</returns>
+    /// <returns>A <see cref="Document" /> representing the loaded document.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the document cannot be loaded.</exception>
-    public LoDocument DocumentLoad(string fileUrl)
+    public Document DocumentLoad(string fileUrl)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
@@ -337,7 +337,7 @@ public sealed class LibreOfficeInstance : IDisposable
         if (error != null)
             throw new InvalidOperationException($"Failed to load document: {error}");
 
-        return pDoc == IntPtr.Zero ? throw new InvalidOperationException("documentLoad returned null pointer.") : new LoDocument(pDoc);
+        return pDoc == IntPtr.Zero ? throw new InvalidOperationException("documentLoad returned null pointer.") : new Document(pDoc);
     }
     #endregion
 

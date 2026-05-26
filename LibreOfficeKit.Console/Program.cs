@@ -155,7 +155,7 @@ internal static class Program
         try
         {
             System.Console.Write("Searching for LibreOffice installation... ");
-            var installPath = LibreOfficeInstance.FindInstallPath();
+            var installPath = Instance.FindInstallPath();
             if (installPath == null)
             {
                 System.Console.Error.WriteLine("FAILED — LibreOffice not found.");
@@ -170,11 +170,11 @@ internal static class Program
                 return 1;
             }
 
-            var inputUrl = LibreOfficeInstance.PathToFileUrl(inputFile);
-            var outputUrl = LibreOfficeInstance.PathToFileUrl(outputFile);
+            var inputUrl = Instance.PathToFileUrl(inputFile);
+            var outputUrl = Instance.PathToFileUrl(outputFile);
 
             System.Console.Write("Initializing LibreOffice... ");
-            using var office = LibreOfficeInstance.Create(installPath);
+            using var office = Instance.Create(installPath);
             System.Console.WriteLine("OK");
 
             System.Console.Write("Loading document... ");
