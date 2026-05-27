@@ -322,6 +322,7 @@ public sealed class Instance : IDisposable
     /// <param name="fileUrl">The <c>file://</c> URL of the document to load.</param>
     /// <returns>A <see cref="Document" /> representing the loaded document.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the document cannot be loaded.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.FilePasswordProtectedException">Thrown when the document is password-protected.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.FileTypeNotSupportedException">Thrown when the file type is not supported.</exception>
     public Document DocumentLoad(string fileUrl)
     {
@@ -369,6 +370,14 @@ public sealed class Instance : IDisposable
         var error = GetError();
         if (error != null)
         {
+            // Check if the error indicates a password-protected document
+            if (error.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("encrypted", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("protected", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new LibreOfficeKit.Exceptions.FilePasswordProtectedException($"Document is password-protected: '{error}'");
+            }
+
             // Check if the error indicates an unsupported file type
             if (error.Contains("format", StringComparison.OrdinalIgnoreCase) ||
                 error.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||

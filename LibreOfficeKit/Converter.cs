@@ -241,6 +241,7 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
     /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.TimeoutException">Thrown when the conversion times out.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.FilePasswordProtectedException">Thrown when the document is password-protected.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.FileTypeNotSupportedException">Thrown when the file type is not supported.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.ConversionFailedException">Thrown when the conversion fails.</exception>
     public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null)
@@ -279,11 +280,12 @@ public class Converter : IDisposable, IAsyncDisposable
             {
                 _logger.LogError("PDF conversion failed for '{InputFile}': '{Error}'", inputFile, response.Error ?? "Unknown error");
 
-                // Re-throw the original exception type if available
-                if (response.ExceptionType == nameof(LibreOfficeKit.Exceptions.FileTypeNotSupportedException))
-                    throw new LibreOfficeKit.Exceptions.FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
-
-                throw new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
+                throw response.ExceptionType switch
+                {
+                    // Re-throw the original exception type if available
+                    nameof(FilePasswordProtectedException) => new FilePasswordProtectedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"),
+                    nameof(FileTypeNotSupportedException) => new FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"), _ => new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'")
+                };
             }
 
             _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);

@@ -69,22 +69,24 @@ conversions, this project uses a **process pool** architecture:
 |----------------------------|--------------------------------------------------------|
 | `DocumentType.cs`          | Document type classification (Writer, Calc, Impress …) |
 | `InitialView.cs`           | PDF initial viewer panel state                         |
-| `PdfACompliance.cs`        | PDF/A compliance level (None, 1b, 2b, 3b …)           |
+| `PdfACompliance.cs`        | PDF/A compliance level (None, 1b, 2b, 3b …)            |
 | `PdfChangePermission.cs`   | PDF change permission flags                            |
 | `PdfCompressionOptions.cs` | Per-image-type PDF compression overrides               |
 | `PdfOptions.cs`            | Aggregate PDF export options (see section below)       |
 | `PdfPrintPermission.cs`    | PDF print permission flags                             |
 | `PdfSecurityOptions.cs`    | PDF encryption and permission settings                 |
-| `PdfVersion.cs`            | PDF version/standard selection (1.4, 1.5, PDF/A, …)   |
+| `PdfVersion.cs`            | PDF version/standard selection (1.4, 1.5, PDF/A, …)    |
 | `SaveFormat.cs`            | Output save format enumeration                         |
 | `SaveFormatExtensions.cs`  | Extension methods for `SaveFormat`                     |
 
 #### `Exceptions/`
 
-| File                          | Description                                                          |
-|-------------------------------|----------------------------------------------------------------------|
-| `TimeoutException.cs`         | Thrown when a conversion or worker operation exceeds the time limit  |
-| `ConversionFailedException.cs`| Thrown when LibreOffice reports a conversion failure                 |
+| File                                       | Description                                                          |
+|--------------------------------------------|----------------------------------------------------------------------|
+| `TimeoutException.cs`                      | Thrown when a conversion or worker operation exceeds the time limit  |
+| `FilePasswordProtectedException.cs`        | Thrown when a file is password-protected                             |
+| `FileTypeNotSupportedException.cs`         | Thrown when a file type is not supported by LibreOffice              |
+| `ConversionFailedException.cs`             | Thrown when LibreOffice reports a conversion failure                 |
 
 ### `LibreOfficeKit.Console` (Console App)
 
@@ -164,6 +166,91 @@ await using var output = File.Create("output.pdf");
 
 await converter.ConvertToPdfAsync(input, output, pdfOptions: PdfOptions.Screen);
 ```
+
+## Exception Handling
+
+The library uses specific exception types to distinguish between different failure scenarios during document loading
+and conversion. All custom exceptions are in the `LibreOfficeKit.Exceptions` namespace.
+
+### Exception Types
+
+| Exception                               | When thrown                                                                  |
+|-----------------------------------------|------------------------------------------------------------------------------|
+| `TimeoutException`                      | The conversion or worker operation exceeded the specified timeout            |
+| `DocumentPasswordProtectedException`    | The document is password-protected and cannot be opened without credentials  |
+| `FileTypeNotSupportedException`         | The file type is not supported by LibreOffice for loading or conversion      |
+| `ConversionFailedException`             | The conversion failed for any other reason                                   |
+
+### Exception Flow
+
+Exceptions originate in the worker process and are propagated to the calling code through the IPC layer:
+
+```
+Worker Process: Document.Load / Document.SaveAs
+     ↓
+Worker: Catches specific exception (e.g., DocumentPasswordProtectedException)
+     ↓
+Worker: Sends ConvertResponse with ExceptionType field
+     ↓
+Converter: Reads ExceptionType and re-throws the original exception type
+     ↓
+Your Code: Can catch specific exception types
+```
+
+### Usage Example
+
+```csharp
+using LibreOfficeKit;
+using LibreOfficeKit.Exceptions;
+
+await using var converter = new Converter(maxInstances: 4);
+
+try
+{
+    await converter.ConvertToPdfAsync("input.docx", "output.pdf");
+}
+catch (DocumentPasswordProtectedException ex)
+{
+    // Document requires a password
+    Console.WriteLine($"Document is password-protected: {ex.Message}");
+}
+catch (FileTypeNotSupportedException ex)
+{
+    // File type not supported by LibreOffice
+    Console.WriteLine($"File type not supported: {ex.Message}");
+}
+catch (TimeoutException ex)
+{
+    // Conversion took too long
+    Console.WriteLine($"Conversion timed out: {ex.Message}");
+}
+catch (ConversionFailedException ex)
+{
+    // Other conversion failure
+    Console.WriteLine($"Conversion failed: {ex.Message}");
+}
+```
+
+### Detection Logic
+
+The library analyzes error messages returned by LibreOffice to determine the exception type:
+
+- **Password-protected**: Error contains `"password"`, `"encrypted"`, or `"protected"`
+- **Unsupported file type**: Error contains `"format"`, `"not supported"`, `"unknown"`, or `"filter"`
+- **Timeout**: Operation exceeds the specified `timeout` parameter
+- **Other failures**: Any other error during loading or conversion
+
+### Timeout Behavior
+
+When a timeout is specified, the library enforces it at multiple stages:
+
+1. **Worker acquisition**: Waiting for an available worker
+2. **Worker spawn**: Starting a new worker process
+3. **Document loading**: Loading the input document in the worker
+4. **PDF conversion**: Converting and saving the PDF
+5. **IPC communication**: Sending requests and reading responses
+
+If any stage exceeds the remaining time budget, a `TimeoutException` is thrown immediately.
 
 ## PdfOptions Reference
 
