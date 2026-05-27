@@ -24,32 +24,8 @@
 // THE SOFTWARE.
 //
 using LibreOfficeKit;
-
-//
-// LibreOfficeTest.cs
-//
-// Author: Kees van Spelde <sicos2002@hotmail.com>
-//
-// Copyright (c) 2026 Magic-Sessions. (www.magic-sessions.com)
-//
-// Permission is hereby granted, free of charge, to any person obtaining a copy
-// of this software and associated documentation files (the "Software"), to deal
-// in the Software without restriction, including without limitation the rights
-// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-// copies of the Software, and to permit persons to whom the Software is
-// furnished to do so, subject to the following conditions:
-//
-// The above copyright notice and this permission notice shall be included in
-// all copies or substantial portions of the Software.
-//
-// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-// FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE
-// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-// THE SOFTWARE.
-//
+using LibreOfficeKit.Exceptions;
+using Microsoft.Extensions.Logging;
 
 namespace LibreOfficeTest;
 
@@ -59,6 +35,7 @@ public class ConverterTests
     #region Fields
     private static Converter _converter = null!;
     private static DirectoryInfo _tempDirectory = null!;
+    private static TestContext _context = null!;
     #endregion
 
     [TestMethod]
@@ -94,7 +71,11 @@ public class ConverterTests
     public async Task FileIsCorrupt()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A corrupt compound document.pdf");
-        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A corrupt compound document.doc"), outputFile);
+
+        await Assert.ThrowsAsync<ConversionFailedException>(async () => 
+        {
+            await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A corrupt compound document.doc"), outputFile);
+        });
     }
 
     #region Microsoft Office Word tests
@@ -118,8 +99,10 @@ public class ConverterTests
     public async Task DocWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOC word document with password.pdf");
-        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A DOC word document with password.doc"), outputFile);
-        Assert.IsTrue(File.Exists(outputFile));
+        await Assert.ThrowsAsync<ConversionFailedException>(async () => 
+        {
+            await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A DOC word document with password.doc"), outputFile);
+        });
     }
 
     [TestMethod]
@@ -155,7 +138,10 @@ public class ConverterTests
     public async Task DocxWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOCX word document with password.pdf");
-        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A DOCX word document with password.docx"), outputFile);
+        await Assert.ThrowsAsync<ConversionFailedException>(async () =>
+        {
+            await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A DOCX word document with password.docx"), outputFile);
+        });
     }
     #endregion
 
@@ -357,12 +343,14 @@ public class ConverterTests
     [ClassInitialize]
     public static void TestInitialize(TestContext context)
     {
+        _context = context;
         var tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         _tempDirectory = new DirectoryInfo(tempDirectory);
         _tempDirectory.Create();
-        //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0));
-        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe");
-        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe");
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).SetMinimumLevel(LogLevel.Debug));
+        var logger = loggerFactory.CreateLogger<Converter>();
+        //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0), logger: logger);
+        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe", logger);
     }
 
     [ClassCleanup]

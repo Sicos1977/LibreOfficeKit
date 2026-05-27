@@ -211,7 +211,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
             SpawnWorkerAsync().ContinueWith(t =>
             {
-                if (t.Status == TaskStatus.RanToCompletion && t.Result != null)
+                if (t is { Status: TaskStatus.RanToCompletion, Result: not null })
                 {
                     _availableWorkers.Add(t.Result);
                     _workerAvailable.Release();
@@ -458,6 +458,19 @@ public class Converter : IDisposable, IAsyncDisposable
 #endif
                 throw new ConversionFailedException("Failed to start worker process.");
             }
+
+            process.OutputDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                    _logger.LogDebug("[Worker '{PipeName}' stdout] {Line}", pipeName, e.Data);
+            };
+            process.ErrorDataReceived += (_, e) =>
+            {
+                if (!string.IsNullOrEmpty(e.Data))
+                    _logger.LogWarning("[Worker '{PipeName}' stderr] {Line}", pipeName, e.Data);
+            };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
         }
         catch (Exception exception)
         {
@@ -605,14 +618,14 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <summary>
     ///     Background loop that periodically pings all workers and recycles unhealthy ones.
     /// </summary>
-    /// <param name="ct">Cancellation token to stop the monitoring loop.</param>
-    private async Task HealthMonitorLoopAsync(CancellationToken ct)
+    /// <param name="cancellationToken">Cancellation token to stop the monitoring loop.</param>
+    private async Task HealthMonitorLoopAsync(CancellationToken cancellationToken)
     {
-        while (!ct.IsCancellationRequested)
+        while (!cancellationToken.IsCancellationRequested)
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
+                await Task.Delay(TimeSpan.FromSeconds(15), cancellationToken).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -697,8 +710,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
             foreach (var worker in workersToShutdown)
             {
-                _logger.LogInformation("Shutting down idle worker '{PipeName}' (idle for {IdleSeconds:F0}s).",
-                    worker.PipeName, worker.IdleDuration.TotalSeconds);
+                _logger.LogInformation("Shutting down idle worker '{PipeName}' (idle for {IdleSeconds:F0}s).", worker.PipeName, worker.IdleDuration.TotalSeconds);
                 RemoveWorker(worker);
             }
         }
@@ -756,18 +768,20 @@ public class Converter : IDisposable, IAsyncDisposable
 
     #region TryDeleteFile
     /// <summary>
-    ///     Attempts to delete a file, silently ignoring any errors.
+    ///     Attempts to delete a file. Logs a warning when deletion fails.
     /// </summary>
     /// <param name="path">The file path to delete.</param>
-    private static void TryDeleteFile(string path)
+    private void TryDeleteFile(string path)
     {
         try
         {
-            if (File.Exists(path)) File.Delete(path);
+            if (!File.Exists(path)) return;
+            File.Delete(path);
+            _logger.LogDebug("Deleted temporary file '{Path}'", path);
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogWarning(exception, "Failed to delete temporary file '{Path}'", path);
         }
     }
     #endregion
@@ -779,6 +793,7 @@ public class Converter : IDisposable, IAsyncDisposable
     public void Dispose()
     {
         if (_disposed) return;
+        _logger.LogInformation("Disposing converter (synchronous), shutting down {Count} worker(s)", _allWorkers.Count);
         var timeout = TimeSpan.FromSeconds(1);
 
         _cancellationTokenSource.Cancel();
@@ -787,14 +802,16 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             try
             {
+                _logger.LogDebug("Sending shutdown to worker '{PipeName}'", kvp.Key);
                 kvp.Value.SendShutdownAsync().Wait(timeout);
             }
-            catch
+            catch (Exception exception)
             {
-                // ignored
+                _logger.LogWarning(exception, "Failed to send shutdown to worker '{PipeName}'", kvp.Key);
             }
 
             kvp.Value.Kill();
+            _logger.LogDebug("Worker '{PipeName}' killed", kvp.Key);
         }
 
         _allWorkers.Clear();
@@ -803,24 +820,25 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             _healthMonitorTask.Wait(timeout);
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogWarning(exception, "Health monitor task did not complete within timeout");
         }
 
         try
         {
             _idleMonitorTask.Wait(timeout);
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogWarning(exception, "Idle monitor task did not complete within timeout");
         }
 
         _cancellationTokenSource.Dispose();
         _poolSemaphore.Dispose();
         _workerAvailable.Dispose();
         _disposed = true;
+        _logger.LogInformation("Converter disposed");
     }
     #endregion
 
@@ -832,6 +850,7 @@ public class Converter : IDisposable, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
+        _logger.LogInformation("Disposing converter (asynchronous), shutting down {Count} worker(s)", _allWorkers.Count);
         var timeout = TimeSpan.FromSeconds(1);
 
         await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
@@ -840,15 +859,17 @@ public class Converter : IDisposable, IAsyncDisposable
             {
                 try
                 {
+                    _logger.LogDebug("Sending shutdown to worker '{PipeName}'", kvp.Key);
                     await kvp.Value.SendShutdownAsync().ConfigureAwait(false);
                     await Task.Delay(10).ConfigureAwait(false);
                 }
-                catch
+                catch (Exception exception)
                 {
-                    // ignored
+                    _logger.LogWarning(exception, "Failed to send shutdown to worker '{PipeName}'", kvp.Key);
                 }
 
                 kvp.Value.Kill();
+                _logger.LogDebug("Worker '{PipeName}' killed", kvp.Key);
             }))
             .ToList();
 
@@ -861,24 +882,25 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             await _healthMonitorTask.WaitAsync(timeout).ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogWarning(exception, "Health monitor task did not complete within timeout");
         }
 
         try
         {
             await _idleMonitorTask.WaitAsync(timeout).ConfigureAwait(false);
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogWarning(exception, "Idle monitor task did not complete within timeout");
         }
 
         _cancellationTokenSource.Dispose();
         _poolSemaphore.Dispose();
         _workerAvailable.Dispose();
         _disposed = true;
+        _logger.LogInformation("Converter disposed");
     }
     #endregion
 #endif
