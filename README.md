@@ -402,19 +402,6 @@ LibreOfficeKit/bin/Release/LibreOfficeKit.<version>.nupkg
 LibreOfficeKit/bin/Release/LibreOfficeKit.<version>.snupkg   ← debug symbols
 ```
 
-### Publishing to NuGet.org
-
-1. Create an API key at [https://www.nuget.org/account/apikeys](https://www.nuget.org/account/apikeys).
-2. Push the package:
-
-```bash
-dotnet nuget push LibreOfficeKit/bin/Release/LibreOfficeKit.<version>.nupkg \
-  --api-key <your-api-key> \
-  --source https://api.nuget.org/v3/index.json
-```
-
-The `.snupkg` symbol package is pushed automatically alongside the main package when using the NuGet.org source.
-
 ### Versioning
 
 The package version is set via the `<Version>` property in `LibreOfficeKit/LibreOfficeKit.csproj`.
