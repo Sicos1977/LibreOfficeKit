@@ -3,6 +3,10 @@
 A .NET library and console application for document-to-PDF conversion using LibreOfficeKit, featuring a
 multi-process worker pool for safe concurrent conversions.
 
+## NuGet
+
+[![NuGet](https://img.shields.io/nuget/v/LibreOfficeKit.svg?style=flat-square)](https://www.nuget.org/packages/LibreOfficeKit)
+
 ## Architecture
 
 LibreOfficeKit (LOK) is **not** thread-safe — only one instance per process is allowed. To enable concurrent
