@@ -1,5 +1,5 @@
-﻿//
-// ConvertResponse.cs
+//
+// FileTypeNotSupportedException.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -22,32 +22,38 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//
 
-namespace LibreOfficeKit.Protocols;
+namespace LibreOfficeKit.Exceptions;
 
 /// <summary>
-///     Result of a conversion request.
+///     Raised when a file type is not supported by LibreOffice for loading or conversion.
 /// </summary>
-/// <paramref name="success">Indicates whether the conversion succeeded.</paramref>
-/// <paramref name="error">The error message if the conversion failed; otherwise <c>null</c>.</paramref>
-/// <paramref name="exceptionType">The type name of the exception if the conversion failed; otherwise <c>null</c>.</paramref>
-internal sealed class ConvertResponse(bool success, string? error = null, string? exceptionType = null) : WorkerResponse
+public sealed class FileTypeNotSupportedException : Exception
 {
-    #region Properties
     /// <summary>
-    ///     Gets a value indicating whether the conversion succeeded.
+    ///     Raised when a file type is not supported by LibreOffice for loading or conversion.
     /// </summary>
-    public bool Success { get; } = success;
+    public FileTypeNotSupportedException()
+    {
+    }
 
     /// <summary>
-    ///     Gets the error message if the conversion failed; otherwise <c>null</c>.
+    ///     Initializes a new instance of the <see cref="FileTypeNotSupportedException"/> class with a specified error message.
     /// </summary>
-    public string? Error { get; } = error;
+    /// <param name="message">The message that describes the error.</param>
+    public FileTypeNotSupportedException(string message) : base(message)
+    {
+    }
 
     /// <summary>
-    ///     Gets the exception type name if the conversion failed; otherwise <c>null</c>.
+    ///     Initializes a new instance of the <see cref="FileTypeNotSupportedException"/> class with a specified error message and a
+    ///     reference to the inner exception that is the cause of this exception.
     /// </summary>
-    public string? ExceptionType { get; } = exceptionType;
-    #endregion
+    /// <param name="message">The error message that explains the reason for the exception.</param>
+    /// <param name="innerException">
+    ///     The exception that is the cause of the current exception, or <c>null</c> if no inner exception is specified.
+    /// </param>
+    public FileTypeNotSupportedException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
 }

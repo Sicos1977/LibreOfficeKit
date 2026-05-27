@@ -167,7 +167,7 @@ public class PdfOptions
         ExportBookmarks = true,
         UseTaggedPdf = true,
         PdfACompliance = PdfACompliance.Level2B,
-        PdfVersion = Enums.PdfVersion.PdfA2b
+        PdfVersion = Enums.PdfVersion.PdfA2B
     };
     #endregion
 
@@ -229,7 +229,7 @@ public class PdfOptions
         // PDF version/compliance
         if (PdfVersion.HasValue)
         {
-            if (PdfVersion.Value == Enums.PdfVersion.PdfUA1)
+            if (PdfVersion.Value == Enums.PdfVersion.PdfUa1)
             {
                 parts.Add("SelectPdfVersion=0");
                 parts.Add("PDFUACompliance=true");

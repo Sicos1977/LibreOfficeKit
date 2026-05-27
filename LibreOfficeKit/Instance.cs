@@ -47,11 +47,17 @@ namespace LibreOfficeKit;
 public sealed class Instance : IDisposable
 {
     #region Fields
+#if NET10_0_OR_GREATER
+    /// <summary>
+    ///     Global lock ensuring only one LOK instance is active at a time.
+    /// </summary>
+    private static readonly Lock GlobalLock = new();
+#else
     /// <summary>
     ///     Global lock ensuring only one LOK instance is active at a time.
     /// </summary>
     private static readonly object GlobalLock = new();
-
+#endif
     /// <summary>
     ///     Tracks whether an instance is currently active.
     /// </summary>
@@ -309,36 +315,228 @@ public sealed class Instance : IDisposable
 
     #region DocumentLoad
     /// <summary>
-    ///     Loads a document from the given file URL.
+    ///     Loads a document from the given file URL, automatically selecting the correct
+    ///     LibreOffice import filter based on the file extension.
+    ///     Uses <c>documentLoadWithOptions</c> when available, falling back to <c>documentLoad</c>.
     /// </summary>
     /// <param name="fileUrl">The <c>file://</c> URL of the document to load.</param>
     /// <returns>A <see cref="Document" /> representing the loaded document.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the document cannot be loaded.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.FileTypeNotSupportedException">Thrown when the file type is not supported.</exception>
     public Document DocumentLoad(string fileUrl)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
-        if (_officeClass.documentLoad == IntPtr.Zero)
-            throw new InvalidOperationException("documentLoad function not available.");
+        // Derive a filter name from the file extension so LOK does not have to guess.
+        var filterName = GetFilterName(fileUrl);
+        var options = filterName != null ? $"FilterName={filterName}" : null;
 
-        var documentLoad = Marshal.GetDelegateForFunctionPointer<LokDocumentLoadFunction>(_officeClass.documentLoad);
-
-        var pUrl = Marshal.StringToHGlobalAnsi(fileUrl);
         IntPtr pDoc;
-        try
+
+        if (_officeClass.documentLoadWithOptions != IntPtr.Zero && options != null)
         {
-            pDoc = documentLoad(_pOffice, pUrl);
+            var loadWithOptions = Marshal.GetDelegateForFunctionPointer<LokDocumentLoadWithOptionsFunction>(_officeClass.documentLoadWithOptions);
+
+            var pUrl = Marshal.StringToHGlobalAnsi(fileUrl);
+            var pOptions = Marshal.StringToHGlobalAnsi(options);
+            try
+            {
+                pDoc = loadWithOptions(_pOffice, pUrl, pOptions);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(pUrl);
+                Marshal.FreeHGlobal(pOptions);
+            }
         }
-        finally
+        else
         {
-            Marshal.FreeHGlobal(pUrl);
+            if (_officeClass.documentLoad == IntPtr.Zero)
+                throw new InvalidOperationException("documentLoad function not available.");
+
+            var documentLoad = Marshal.GetDelegateForFunctionPointer<LokDocumentLoadFunction>(_officeClass.documentLoad);
+            var pUrl = Marshal.StringToHGlobalAnsi(fileUrl);
+            try
+            {
+                pDoc = documentLoad(_pOffice, pUrl);
+            }
+            finally
+            {
+                Marshal.FreeHGlobal(pUrl);
+            }
         }
 
         var error = GetError();
         if (error != null)
-            throw new InvalidOperationException($"Failed to load document: {error}");
+        {
+            // Check if the error indicates an unsupported file type
+            if (error.Contains("format", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("unknown", StringComparison.OrdinalIgnoreCase) ||
+                error.Contains("filter", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new LibreOfficeKit.Exceptions.FileTypeNotSupportedException($"Failed to load document: '{error}'");
+            }
+
+            throw new InvalidOperationException($"Failed to load document: '{error}'");
+        }
 
         return pDoc == IntPtr.Zero ? throw new InvalidOperationException("documentLoad returned null pointer.") : new Document(pDoc);
+    }
+    #endregion
+
+    #region GetFilterName
+    /// <summary>
+    ///     Returns the LibreOffice import filter name for a given file URL or path,
+    ///     based on the file extension. Returns <c>null</c> when the extension is unknown
+    ///     so LOK can fall back to auto-detection.
+    /// </summary>
+    private static string? GetFilterName(string fileUrl)
+    {
+        var ext = Path.GetExtension(fileUrl).TrimStart('.').ToLowerInvariant();
+        return ext switch
+        {
+            // ── Writer ──────────────────────────────────────────────────────
+            "odt"    => "writer8",
+            "ott"    => "writer8_template",
+            "odm"    => "writerglobal8",
+            "oth"    => "writerweb8_writer_template",
+            "doc"    => "MS Word 97",
+            "dot"    => "MS Word 97 Vorlage",
+            "docx"   => "MS Word 2007 XML",
+            "docm"   => "MS Word 2007 XML",
+            "dotx"   => "MS Word 2007 XML Template",
+            "dotm"   => "MS Word 2007 XML Template",
+            "rtf"    => "Rich Text Format",
+            "txt"    => "Text",
+            "fodt"   => "OpenDocument Text Flat XML",
+            "uot"    => "UOF Text",
+            "wpd"    => "WordPerfect",
+            "wps"    => "MS Works",
+            "lwp"    => "Lotus WordPro",
+            "pages"  => "writer_pages",
+            "fb2"    => "FictionBook 2",
+            "epub"   => "EPUB",
+            "html"   => "HTML (StarWriter)",
+            "htm"    => "HTML (StarWriter)",
+            "xhtml"  => "XHTML Writer File",
+            "sxw"    => "StarWriter 5.5",
+            "sdw"    => "StarWriter 3.0",
+            "vor"    => "StarWriter 5.5 Vorlage",
+            "pdb"    => "PalmDoc",
+            "abw"    => "AbiWord",
+            "zabw"   => "AbiWord",
+            "hwp"    => "writer_HWP",
+            "hwpx"   => "writer_HWPX",
+            "602"    => "T602Document",
+
+            // ── Calc ────────────────────────────────────────────────────────
+            "ods"    => "calc8",
+            "ots"    => "calc8_template",
+            "xls"    => "MS Excel 97",
+            "xlt"    => "MS Excel 97 Vorlage",
+            "xlsx"   => "Calc MS Excel 2007 XML",
+            "xlsm"   => "Calc MS Excel 2007 XML",
+            "xltx"   => "Calc MS Excel 2007 XML Template",
+            "xltm"   => "Calc MS Excel 2007 XML Template",
+            "xlsb"   => "MS Excel 2007 Binary",
+            "csv"    => "Text - txt - csv (StarCalc)",
+            "tsv"    => "Text - txt - csv (StarCalc)",
+            "dif"    => "DIF",
+            "slk"    => "SYLK",
+            "fods"   => "OpenDocument Spreadsheet Flat XML",
+            "uos"    => "UOF Spreadsheet",
+            "sxc"    => "StarCalc 5.5",
+            "sdc"    => "StarCalc 3.0",
+            "numbers" => "calc_numbers",
+            "wk1"    => "Lotus",
+            "wk3"    => "Lotus",
+            "wk4"    => "Lotus",
+            "wb2"    => "Quattro Pro 6.0",
+
+            // ── Impress ─────────────────────────────────────────────────────
+            "odp"    => "impress8",
+            "otp"    => "impress8_template",
+            "ppt"    => "MS PowerPoint 97",
+            "pot"    => "MS PowerPoint 97 Vorlage",
+            "pps"    => "MS PowerPoint 97",
+            "pptx"   => "Impress MS PowerPoint 2007 XML",
+            "pptm"   => "Impress MS PowerPoint 2007 XML",
+            "potx"   => "Impress MS PowerPoint 2007 XML Template",
+            "potm"   => "Impress MS PowerPoint 2007 XML Template",
+            "ppsx"   => "Impress MS PowerPoint 2007 XML",
+            "fodp"   => "OpenDocument Presentation Flat XML",
+            "uop"    => "UOF Presentation",
+            "sxi"    => "StarImpress 5.5",
+            "sdd"    => "StarDraw 3.0",
+            "key"    => "impress_key",
+            "cgm"    => "CGM - Computer Graphics Metafile",
+
+            // ── Draw ─────────────────────────────────────────────────────────
+            "odg"    => "draw8",
+            "otg"    => "draw8_template",
+            "fodg"   => "OpenDocument Drawing Flat XML",
+            "sxd"    => "StarDraw 5.5",
+            "std"    => "StarDraw 5.5 Vorlage",
+            "svg"    => "draw_svg_Export",
+            "svgz"   => "draw_svg_Export",
+            "wmf"    => "WMF",
+            "emf"    => "EMF",
+            "vsd"    => "Visio",
+            "vsdx"   => "Visio 2013",
+            "vsdm"   => "Visio 2013",
+            "vss"    => "Visio",
+            "vst"    => "Visio",
+            "pub"    => "Publisher",
+            "cdr"    => "Corel Draw",
+            "fh"     => "FreeHand",
+            "fh4"    => "FreeHand",
+            "fh5"    => "FreeHand",
+            "fh8"    => "FreeHand",
+            "fh9"    => "FreeHand",
+            "fh10"   => "FreeHand",
+            "fh11"   => "FreeHand",
+
+            // ── Math ─────────────────────────────────────────────────────────
+            "odf"    => "math8",
+            "mml"    => "MathML XML (Math)",
+            "sxm"    => "StarMath 5.5",
+
+            // ── Raster images (Draw opens these) ─────────────────────────────
+            "bmp"    => "BMP",
+            "gif"    => "GIF",
+            "jpg"    => "JPEG",
+            "jpeg"   => "JPEG",
+            "jpe"    => "JPEG",
+            "jfif"   => "JPEG",
+            "png"    => "PNG",
+            "tif"    => "TIFF",
+            "tiff"   => "TIFF",
+            "webp"   => "WEBP",
+            "pbm"    => "PBM",
+            "pgm"    => "PGM",
+            "ppm"    => "PPM",
+            "pnm"    => "PNM",
+            "xpm"    => "XPM",
+            "pcx"    => "PCX",
+            "psd"    => "PSD",
+            "tga"    => "TGA",
+            "ico"    => "ICO",
+            "cur"    => "ICO",
+            "eps"    => "EPS",
+            "met"    => "MET",
+            "svm"    => "SVM",
+            "xbm"    => "XBM",
+            "dxf"    => "DXF",
+
+            // ── PDF (import via Draw/Writer) ──────────────────────────────────
+            "pdf"    => "draw_pdf_import",
+
+            // ── Database ─────────────────────────────────────────────────────
+            "odb"    => "StarBase",
+
+            _        => null
+        };
     }
     #endregion
 

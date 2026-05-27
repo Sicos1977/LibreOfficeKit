@@ -241,6 +241,7 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
     /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.TimeoutException">Thrown when the conversion times out.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.FileTypeNotSupportedException">Thrown when the file type is not supported.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.ConversionFailedException">Thrown when the conversion fails.</exception>
     public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null)
     {
@@ -277,6 +278,11 @@ public class Converter : IDisposable, IAsyncDisposable
             if (!response.Success)
             {
                 _logger.LogError("PDF conversion failed for '{InputFile}': '{Error}'", inputFile, response.Error ?? "Unknown error");
+
+                // Re-throw the original exception type if available
+                if (response.ExceptionType == nameof(LibreOfficeKit.Exceptions.FileTypeNotSupportedException))
+                    throw new LibreOfficeKit.Exceptions.FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
+
                 throw new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
             }
 
@@ -794,7 +800,7 @@ public class Converter : IDisposable, IAsyncDisposable
     {
         if (_disposed) return;
         _logger.LogInformation("Disposing converter (synchronous), shutting down {Count} worker(s)", _allWorkers.Count);
-        var timeout = TimeSpan.FromSeconds(1);
+        var timeout = TimeSpan.FromSeconds(5);
 
         _cancellationTokenSource.Cancel();
 
@@ -851,7 +857,7 @@ public class Converter : IDisposable, IAsyncDisposable
     {
         if (_disposed) return;
         _logger.LogInformation("Disposing converter (asynchronous), shutting down {Count} worker(s)", _allWorkers.Count);
-        var timeout = TimeSpan.FromSeconds(1);
+        var timeout = TimeSpan.FromSeconds(5);
 
         await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
 
@@ -874,7 +880,22 @@ public class Converter : IDisposable, IAsyncDisposable
             .ToList();
 
         if (shutdownTasks.Count > 0)
-            await Task.WhenAll(shutdownTasks).WaitAsync(timeout).ConfigureAwait(false);
+        {
+            await Task.WhenAll(shutdownTasks)
+                .WaitAsync(timeout)
+                .ContinueWith(t =>
+                {
+                    if (t is { IsFaulted: true, Exception.InnerException: TimeoutException timeoutEx })
+                    {
+                        _logger.LogWarning(timeoutEx, "Shutdown tasks did not complete within timeout");
+                    }
+                    else if (t.IsFaulted)
+                    {
+                        _logger.LogError(t.Exception, "An error occurred during shutdown tasks");
+                    }
+                }, TaskContinuationOptions.ExecuteSynchronously)
+                .ConfigureAwait(false);
+        }
 
         _allWorkers.Clear();
 

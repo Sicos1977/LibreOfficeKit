@@ -47,6 +47,12 @@ internal delegate void LokDestroyFunction(IntPtr pThis);
 internal delegate IntPtr LokDocumentLoadFunction(IntPtr pThis, IntPtr pUrl);
 
 /// <summary>
+///     Delegate for <c>LibreOfficeKitClass.documentLoadWithOptions</c>.
+/// </summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate IntPtr LokDocumentLoadWithOptionsFunction(IntPtr pThis, IntPtr pUrl, IntPtr pOptions);
+
+/// <summary>
 ///     Delegate for <c>LibreOfficeKitClass.getError</c>.
 /// </summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]

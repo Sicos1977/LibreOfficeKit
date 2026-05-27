@@ -182,6 +182,11 @@ public static class WorkerProcess
                 await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure.")).ConfigureAwait(false);
             }
         }
+        catch (LibreOfficeKit.Exceptions.FileTypeNotSupportedException exception)
+        {
+            logger.LogError(exception, "File type not supported for '{InputFile}'", request.InputFile);
+            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(LibreOfficeKit.Exceptions.FileTypeNotSupportedException))).ConfigureAwait(false);
+        }
         catch (Exception exception)
         {
             logger.LogError(exception, "Exception during conversion of '{InputFile}'", request.InputFile);

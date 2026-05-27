@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
+// ReSharper disable UnusedMember.Global
 namespace LibreOfficeKit.Enums;
 
 /// <summary>
@@ -42,21 +43,21 @@ public enum PdfVersion
     ///     Ensures long-term preservation; most restrictive PDF/A level.
     ///     LibreOffice value: 1.
     /// </summary>
-    PdfA1b = 1,
+    PdfA1B = 1,
 
     /// <summary>
     ///     PDF/A-2b â€” archival format conforming to ISO 19005-2:2011.
     ///     Supports JPEG2000, transparency, and layers. Recommended for most archival needs.
     ///     LibreOffice value: 2.
     /// </summary>
-    PdfA2b = 2,
+    PdfA2B = 2,
 
     /// <summary>
     ///     PDF/A-3b â€” archival format conforming to ISO 19005-3:2012.
     ///     Allows arbitrary file attachments (e.g. original source documents).
     ///     LibreOffice value: 3.
     /// </summary>
-    PdfA3b = 3,
+    PdfA3B = 3,
 
     /// <summary>
     ///     PDF 1.5 â€” older version for compatibility with legacy readers.
@@ -76,5 +77,5 @@ public enum PdfVersion
     ///     Note: This is mapped by combining <c>SelectPdfVersion=0</c> with <c>PDFUACompliance=true</c>.
     ///     LibreOffice value: 0 (with PDFUACompliance flag).
     /// </summary>
-    PdfUA1 = 100
+    PdfUa1 = 100
 }
