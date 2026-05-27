@@ -1,5 +1,5 @@
 //
-// LoDocument.cs
+// WorkerHandle.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -30,6 +30,7 @@ using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
 using System.IO.Pipes;
 using System.Text;
+using TimeoutException = LibreOfficeKit.Exceptions.TimeoutException;
 
 namespace LibreOfficeKit;
 
@@ -140,7 +141,7 @@ internal sealed class WorkerHandle
     /// <param name="timeout">Optional timeout (defaults to 5 minutes).</param>
     /// <returns>The typed response from the worker.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the response type is unexpected or an error occurs.</exception>
-    /// <exception cref="TimeoutException">Thrown when the worker does not respond in time.</exception>
+    /// <exception cref="System.TimeoutException">Thrown when the worker does not respond in time.</exception>
     public async Task<T> SendRequestAsync<T>(WorkerRequest request, TimeSpan? timeout = null) where T : WorkerResponse
     {
         timeout ??= TimeSpan.FromMinutes(5);
@@ -180,7 +181,7 @@ internal sealed class WorkerHandle
     /// </summary>
     /// <param name="timeout">Maximum time to wait for a response.</param>
     /// <returns>The deserialized response, or <c>null</c> if the pipe was closed.</returns>
-    /// <exception cref="TimeoutException">Thrown when the worker does not respond in time.</exception>
+    /// <exception cref="System.TimeoutException">Thrown when the worker does not respond in time.</exception>
     public async Task<WorkerResponse?> ReadResponseAsync(TimeSpan timeout)
     {
         using var cancellationTokenSource = new CancellationTokenSource(timeout);
@@ -190,7 +191,7 @@ internal sealed class WorkerHandle
             var readTask = _reader.ReadLineAsync();
             var delayTask = Task.Delay(timeout, cancellationTokenSource.Token);
             if (await Task.WhenAny(readTask, delayTask).ConfigureAwait(false) == delayTask)
-                throw new TimeOutException("Worker did not respond in time.");
+                throw new TimeoutException("Worker did not respond in time.");
 
             var line = await readTask.ConfigureAwait(false);
 #else
@@ -200,7 +201,7 @@ internal sealed class WorkerHandle
         }
         catch (OperationCanceledException)
         {
-            throw new TimeOutException("Worker did not respond in time.");
+            throw new TimeoutException("Worker did not respond in time.");
         }
     }
     #endregion

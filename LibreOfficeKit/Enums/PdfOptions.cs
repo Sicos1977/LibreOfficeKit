@@ -1,3 +1,28 @@
+﻿//
+// PdfOptions.cs
+//
+// Author: Kees van Spelde <sicos2002@hotmail.com>
+//
+// Copyright (c) 2026 Kees van Spelde. (www.magic-sessions.com)
+//
+// Permission is hereby granted, free of charge, to any person obtaining a copy
+// of this software and associated documentation files (the "Software"), to deal
+// in the Software without restriction, including without limitation the rights
+// to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+// copies of the Software, and to permit persons to whom the Software is
+// furnished to do so, subject to the following conditions:
+//
+// The above copyright notice and this permission notice shall be included in
+// all copies or substantial portions of the Software.
+//
+// THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+// IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+// FITNESS FOR A PARTICULAR PURPOSE AND NON INFRINGEMENT. IN NO EVENT SHALL THE
+// AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+// LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+// OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+// THE SOFTWARE.
+//
 namespace LibreOfficeKit.Enums;
 
 /// <summary>
@@ -18,14 +43,14 @@ public class PdfOptions
     public int Quality { get; set; } = 90;
 
     /// <summary>
-    ///     Gets or sets whether to reduce image resolution to <see cref="MaxImageResolutionDPI" />.
+    ///     Gets or sets whether to reduce image resolution to <see cref="MaxImageResolutionDpi" />.
     /// </summary>
     public bool ReduceImageResolution { get; set; } = true;
 
     /// <summary>
     ///     Gets or sets the maximum image resolution in DPI.
     /// </summary>
-    public int MaxImageResolutionDPI { get; set; } = 300;
+    public int MaxImageResolutionDpi { get; set; } = 300;
 
     /// <summary>
     ///     Gets or sets whether to export bookmarks (outlines) to PDF.
@@ -45,7 +70,7 @@ public class PdfOptions
     /// <summary>
     ///     Gets or sets whether to create a tagged PDF for accessibility.
     /// </summary>
-    public bool UseTaggedPDF { get; set; }
+    public bool UseTaggedPdf { get; set; }
 
     /// <summary>
     ///     Gets or sets whether to fit spreadsheet sheets on a single PDF page.
@@ -103,7 +128,7 @@ public class PdfOptions
         Quality = 100,
         ReduceImageResolution = false,
         ExportBookmarks = true,
-        UseTaggedPDF = true
+        UseTaggedPdf = true
     };
 
     /// <summary>
@@ -114,7 +139,7 @@ public class PdfOptions
         UseLosslessCompression = false,
         Quality = 85,
         ReduceImageResolution = true,
-        MaxImageResolutionDPI = 150,
+        MaxImageResolutionDpi = 150,
         ExportBookmarks = true
     };
 
@@ -126,7 +151,7 @@ public class PdfOptions
         UseLosslessCompression = false,
         Quality = 90,
         ReduceImageResolution = true,
-        MaxImageResolutionDPI = 300,
+        MaxImageResolutionDpi = 300,
         ExportBookmarks = true
     };
 
@@ -138,10 +163,10 @@ public class PdfOptions
         UseLosslessCompression = false,
         Quality = 90,
         ReduceImageResolution = true,
-        MaxImageResolutionDPI = 300,
+        MaxImageResolutionDpi = 300,
         ExportBookmarks = true,
-        UseTaggedPDF = true,
-        PdfACompliance = PdfACompliance.Level2b,
+        UseTaggedPdf = true,
+        PdfACompliance = PdfACompliance.Level2B,
         PdfVersion = Enums.PdfVersion.PdfA2b
     };
     #endregion
@@ -155,8 +180,8 @@ public class PdfOptions
         if (Quality < 1 || Quality > 100)
             throw new ArgumentOutOfRangeException(nameof(Quality), "Must be between 1 and 100.");
 
-        if (MaxImageResolutionDPI <= 0)
-            throw new ArgumentOutOfRangeException(nameof(MaxImageResolutionDPI), "Must be a positive value.");
+        if (MaxImageResolutionDpi <= 0)
+            throw new ArgumentOutOfRangeException(nameof(MaxImageResolutionDpi), "Must be a positive value.");
 
         Compression?.Validate();
         Security?.Validate();
@@ -191,13 +216,13 @@ public class PdfOptions
             parts.Add($"UseLosslessCompression={BoolStr(UseLosslessCompression)}");
             parts.Add($"Quality={Quality}");
             parts.Add($"ReduceImageResolution={BoolStr(ReduceImageResolution)}");
-            parts.Add($"MaxImageResolution={MaxImageResolutionDPI}");
+            parts.Add($"MaxImageResolution={MaxImageResolutionDpi}");
         }
 
         // Content
         parts.Add($"ExportBookmarks={BoolStr(ExportBookmarks)}");
         if (ExportNotes) parts.Add("ExportNotes=true");
-        if (UseTaggedPDF) parts.Add("UseTaggedPDF=true");
+        if (UseTaggedPdf) parts.Add("UseTaggedPDF=true");
         if (!ExportFormFields) parts.Add("ExportFormFields=false");
         if (SinglePageSheets) parts.Add("SinglePageSheets=true");
 

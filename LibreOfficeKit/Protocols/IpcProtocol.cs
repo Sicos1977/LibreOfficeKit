@@ -32,7 +32,8 @@ namespace LibreOfficeKit.Protocols;
 /// </summary>
 /// <param name="inputFile">Path to the input document.</param>
 /// <param name="outputFile">Path where the PDF will be written.</param>
-internal sealed class ConvertRequest(string inputFile, string outputFile) : WorkerRequest
+/// <param name="filterOptions">Optional LibreOffice filter options string passed to <c>saveAs</c>.</param>
+internal sealed class ConvertRequest(string inputFile, string outputFile, string? filterOptions = null) : WorkerRequest
 {
     #region Properties
     /// <summary>
@@ -44,5 +45,10 @@ internal sealed class ConvertRequest(string inputFile, string outputFile) : Work
     ///     Path where the output PDF will be written. The worker will write to this file.
     /// </summary>
     public string OutputFile { get; } = outputFile;
+
+    /// <summary>
+    ///     Optional LibreOffice filter options string passed to the native <c>saveAs</c> function.
+    /// </summary>
+    public string? FilterOptions { get; } = filterOptions;
     #endregion
 }

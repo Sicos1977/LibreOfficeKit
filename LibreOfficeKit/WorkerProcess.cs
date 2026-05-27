@@ -155,7 +155,7 @@ public static class WorkerProcess
     ///     Handles a single conversion request by loading the document and saving it as PDF.
     /// </summary>
     /// <param name="office">The active LibreOffice instance.</param>
-    /// <param name="request">The conversion request containing input/output paths.</param>
+    /// <param name="request">The conversion request containing input/output paths and optional filter options.</param>
     /// <param name="writer">The stream writer for sending the response.</param>
     /// <param name="logger">The logger for logging messages.</param>
     private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer, ILogger logger)
@@ -168,7 +168,7 @@ public static class WorkerProcess
 
             using var document = office.DocumentLoad(inputUrl);
             logger.LogDebug("Saving document as PDF to '{OutputFile}'", request.OutputFile);
-            var success = document.SaveAs(outputUrl, "pdf");
+            var success = document.SaveAs(outputUrl, "pdf", request.FilterOptions);
 
             if (success)
             {

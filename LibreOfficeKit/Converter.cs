@@ -38,6 +38,7 @@
 //   - IDisposable: proper cleanup of all workers and resources
 // =============================================================================
 
+using LibreOfficeKit.Enums;
 using LibreOfficeKit.Exceptions;
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
@@ -47,6 +48,7 @@ using System.Diagnostics;
 using System.IO.Pipes;
 using System.Reflection;
 using System.Runtime.InteropServices;
+using TimeoutException = LibreOfficeKit.Exceptions.TimeoutException;
 
 // ReSharper disable UnusedMember.Global
 
@@ -235,16 +237,17 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <param name="inputFile">Path to the input document.</param>
     /// <param name="outputFile">Path where the PDF will be written.</param>
     /// <param name="timeout">Optional timeout for the conversion operation, when specified.</param>
+    /// <param name="options">Optional <see cref="PdfOptions"/> controlling quality, compliance, security, and layout. When <c>null</c>, the LibreOffice defaults are used.</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
     /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
-    /// <exception cref="TimeoutException">Thrown when the conversion times out.</exception>
-    /// <exception cref="InvalidOperationException">Thrown when the conversion fails.</exception>
-    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null)
+    /// <exception cref="LibreOfficeKit.Exceptions.TimeoutException">Thrown when the conversion times out.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.ConversionFailedException">Thrown when the conversion fails.</exception>
+    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         if (timeout.HasValue && timeout.Value <= TimeSpan.Zero)
-            throw new TimeOutException("Must be greater than zero.");
+            throw new TimeoutException("Must be greater than zero.");
 
         if (!File.Exists(inputFile))
             throw new FileNotFoundException("Input file not found.", inputFile);
@@ -263,11 +266,11 @@ public class Converter : IDisposable, IAsyncDisposable
         await ExecuteOnWorkerAsync(async worker =>
         {
             _logger.LogDebug("Dispatching conversion to worker '{PipeName}'", worker.PipeName);
-            var request = new ConvertRequest(inputFile, outputFile);
+            var request = new ConvertRequest(inputFile, outputFile, options?.ToFilterOptions());
             var requestTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : (TimeSpan?)null;
 
             if (requestTimeout.HasValue && requestTimeout.Value <= TimeSpan.Zero)
-                throw new TimeOutException("Conversion timed out.");
+                throw new TimeoutException("Conversion timed out.");
 
             var response = await worker.SendRequestAsync<ConvertResponse>(request, requestTimeout).ConfigureAwait(false);
 
@@ -288,7 +291,13 @@ public class Converter : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="inputStream">Stream containing the input document.</param>
     /// <param name="outputStream">Stream where the PDF will be written.</param>
-    public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream, TimeSpan? timeout = null)
+    /// <param name="timeout">Optional timeout for the conversion operation, when specified.</param>
+    /// <param name="options">Optional <see cref="PdfOptions"/> controlling quality, compliance, security, and layout. When <c>null</c>, the LibreOffice defaults are used.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
+    /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.TimeoutException">Thrown when the conversion times out.</exception>
+    /// <exception cref="LibreOfficeKit.Exceptions.ConversionFailedException">Thrown when the conversion fails.</exception>
+    public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream, TimeSpan? timeout = null, PdfOptions? options = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
@@ -301,7 +310,7 @@ public class Converter : IDisposable, IAsyncDisposable
             using (var inputFileStream = File.Create(tempInputFile))
                 await inputStream.CopyToAsync(inputFileStream).ConfigureAwait(false);
 
-            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout).ConfigureAwait(false);
+            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout, options).ConfigureAwait(false);
 
             using (var outputFileStream = File.OpenRead(tempOutputFile))
                 await outputFileStream.CopyToAsync(outputStream).ConfigureAwait(false);
@@ -309,7 +318,7 @@ public class Converter : IDisposable, IAsyncDisposable
             await using var inputFileStream = File.Create(tempInputFile);
             await inputStream.CopyToAsync(inputFileStream).ConfigureAwait(false);
 
-            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout).ConfigureAwait(false);
+            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout, options).ConfigureAwait(false);
 
             await using var outputFileStream = File.OpenRead(tempOutputFile);
             await outputFileStream.CopyToAsync(outputStream).ConfigureAwait(false);
@@ -330,6 +339,7 @@ public class Converter : IDisposable, IAsyncDisposable
     ///     If all workers are busy and maxInstances is reached, queues until one is free.
     /// </summary>
     /// <param name="action">The action to execute on the worker.</param>
+    /// <param name="deadline">The optional deadline for the operation. If specified, the operation will be canceled if it exceeds this time.</param>
     private async Task ExecuteOnWorkerAsync(Func<WorkerHandle, Task> action, DateTime? deadline = null)
     {
         WorkerHandle? worker = null;
@@ -360,7 +370,7 @@ public class Converter : IDisposable, IAsyncDisposable
                         }
 
                         if (deadline.HasValue && DateTime.UtcNow >= deadline.Value)
-                            throw new TimeOutException("Conversion timed out.");
+                            throw new TimeoutException("Conversion timed out.");
                     }
                     else
                     {
@@ -368,11 +378,11 @@ public class Converter : IDisposable, IAsyncDisposable
                         {
                             var remaining = GetRemainingTimeout(deadline.Value);
                             if (remaining <= TimeSpan.Zero)
-                                throw new TimeOutException("Conversion timed out.");
+                                throw new TimeoutException("Conversion timed out.");
 
                             var signaled = await _workerAvailable.WaitAsync(remaining, _cancellationTokenSource.Token).ConfigureAwait(false);
                             if (!signaled)
-                                throw new TimeOutException("Conversion timed out.");
+                                throw new TimeoutException("Conversion timed out.");
 
                             _availableWorkers.TryTake(out worker);
                         }
@@ -464,7 +474,7 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             var connectionTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : defaultTimeout;
             if (connectionTimeout <= TimeSpan.Zero)
-                throw new TimeOutException("Conversion timed out.");
+                throw new TimeoutException("Conversion timed out.");
 
             using var cancellationTokenSource = new CancellationTokenSource(connectionTimeout);
             await pipeServer.WaitForConnectionAsync(cancellationTokenSource.Token).ConfigureAwait(false);
@@ -476,7 +486,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
             var responseTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : defaultTimeout;
             if (responseTimeout <= TimeSpan.Zero)
-                throw new TimeOutException("Conversion timed out.");
+                throw new TimeoutException("Conversion timed out.");
 
             var response = await handle.ReadResponseAsync(responseTimeout).ConfigureAwait(false);
 
@@ -496,7 +506,7 @@ public class Converter : IDisposable, IAsyncDisposable
             handle.Kill();
             throw new ConversionFailedException("Worker did not report ready.");
         }
-        catch (TimeOutException)
+        catch (TimeoutException)
         {
             try
             {

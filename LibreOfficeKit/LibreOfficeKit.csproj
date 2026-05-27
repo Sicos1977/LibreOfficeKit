@@ -8,11 +8,82 @@
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
     <TargetFrameworks>net10.0;netstandard2.0</TargetFrameworks>
     <LangVersion>latest</LangVersion>
+
+    <!-- NuGet package metadata -->
+    <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    <PackageId>LibreOfficeKit</PackageId>
+    <Version>1.0.0</Version>
+    <Authors>Kees van Spelde</Authors>
+    <Company>Magic-Sessions</Company>
+    <Product>LibreOfficeKit</Product>
+    <Description>A .NET library for document-to-PDF conversion using LibreOfficeKit, featuring a multi-process worker pool for safe concurrent conversions.</Description>
+    <PackageTags>LibreOffice;PDF;conversion;document;worker-pool</PackageTags>
+    <PackageProjectUrl>https://github.com/Sicos1977/LibreOfficeKit</PackageProjectUrl>
+    <RepositoryUrl>https://github.com/Sicos1977/LibreOfficeKit</RepositoryUrl>
+    <RepositoryType>git</RepositoryType>
+    <PackageLicenseExpression>MIT</PackageLicenseExpression>
+    <PackageReadmeFile>README.md</PackageReadmeFile>
+    <PackageIcon Condition="Exists('..\icon.png')">icon.png</PackageIcon>
+    <PackageRequireLicenseAcceptance>false</PackageRequireLicenseAcceptance>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+
+    <!-- Worker publish staging directory -->
+    <WorkerPublishRoot>$(MSBuildThisFileDirectory)_WorkerPublish\</WorkerPublishRoot>
+    <ConsoleProject>$(MSBuildThisFileDirectory)..\LibreOfficeKit.Console\LibreOfficeKit.Console.csproj</ConsoleProject>
   </PropertyGroup>
+
+  <!-- README and optional icon -->
+  <ItemGroup>
+    <None Include="..\README.md" Pack="true" PackagePath="\" />
+    <None Include="..\icon.png" Pack="true" PackagePath="\" Condition="Exists('..\icon.png')" />
+  </ItemGroup>
+
+  <!-- MSBuild .targets file — auto-copied to consuming project's output directory -->
+  <ItemGroup>
+    <None Include="build\LibreOfficeKit.targets" Pack="true" PackagePath="build\" />
+  </ItemGroup>
+
+  <!-- Worker executables bundled per runtime identifier -->
+  <ItemGroup>
+    <None Include="$(WorkerPublishRoot)win-x64\LibreOfficeKit.Console.exe"
+          Pack="true" PackagePath="runtimes/win-x64/native/"
+          Condition="Exists('$(WorkerPublishRoot)win-x64\LibreOfficeKit.Console.exe')" />
+    <None Include="$(WorkerPublishRoot)linux-x64\LibreOfficeKit.Console"
+          Pack="true" PackagePath="runtimes/linux-x64/native/"
+          Condition="Exists('$(WorkerPublishRoot)linux-x64\LibreOfficeKit.Console')" />
+    <None Include="$(WorkerPublishRoot)osx-x64\LibreOfficeKit.Console"
+          Pack="true" PackagePath="runtimes/osx-x64/native/"
+          Condition="Exists('$(WorkerPublishRoot)osx-x64\LibreOfficeKit.Console')" />
+    <None Include="$(WorkerPublishRoot)osx-arm64\LibreOfficeKit.Console"
+          Pack="true" PackagePath="runtimes/osx-arm64/native/"
+          Condition="Exists('$(WorkerPublishRoot)osx-arm64\LibreOfficeKit.Console')" />
+  </ItemGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.5" />
     <PackageReference Include="System.Text.Json" Version="9.0.5" />
   </ItemGroup>
+
+  <!-- Publish worker for all supported RIDs before packing — runs only once (net10.0 TFM) -->
+  <Target Name="PublishWorkerAllRids" BeforeTargets="GenerateNuspec" Condition="'$(TargetFramework)' == 'net10.0'">
+    <Message Text="Publishing LibreOfficeKit.Console worker for all RIDs..." Importance="high" />
+
+    <MSBuild Projects="$(ConsoleProject)"
+             Targets="Publish"
+             Properties="Configuration=Release;RuntimeIdentifier=win-x64;PublishDir=$(WorkerPublishRoot)win-x64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+
+    <MSBuild Projects="$(ConsoleProject)"
+             Targets="Publish"
+             Properties="Configuration=Release;RuntimeIdentifier=linux-x64;PublishDir=$(WorkerPublishRoot)linux-x64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+
+    <MSBuild Projects="$(ConsoleProject)"
+             Targets="Publish"
+             Properties="Configuration=Release;RuntimeIdentifier=osx-x64;PublishDir=$(WorkerPublishRoot)osx-x64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+
+    <MSBuild Projects="$(ConsoleProject)"
+             Targets="Publish"
+             Properties="Configuration=Release;RuntimeIdentifier=osx-arm64;PublishDir=$(WorkerPublishRoot)osx-arm64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+  </Target>
 
 </Project>
