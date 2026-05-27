@@ -209,10 +209,10 @@ try
 {
     await converter.ConvertToPdfAsync("input.docx", "output.pdf");
 }
-catch (DocumentPasswordProtectedException ex)
+catch (FilePasswordProtectedException ex)
 {
-    // Document requires a password
-    Console.WriteLine($"Document is password-protected: {ex.Message}");
+    // File requires a password
+    Console.WriteLine($"File is password-protected: {ex.Message}");
 }
 catch (FileTypeNotSupportedException ex)
 {
