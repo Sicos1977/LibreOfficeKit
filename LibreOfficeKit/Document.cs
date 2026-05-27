@@ -48,7 +48,7 @@ public sealed class Document : IDisposable
     private bool _disposed;
     #endregion
 
-    #region LoDocument
+    #region Constructor
     /// <summary>
     ///     Initializes a new instance of <see cref="Document" /> wrapping the given native document pointer.
     /// </summary>
@@ -95,9 +95,7 @@ public sealed class Document : IDisposable
             if (pFilter != IntPtr.Zero) Marshal.FreeHGlobal(pFilter);
         }
     }
-    #endregion
-
-    #region SaveAs
+    
     /// <summary>
     ///     Saves the document using a <see cref="SaveFormat" /> enum value.
     /// </summary>

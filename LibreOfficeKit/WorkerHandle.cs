@@ -23,11 +23,13 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 
+using LibreOfficeKit.Exceptions;
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.Diagnostics;
 using System.IO.Pipes;
+using System.Text;
 
 namespace LibreOfficeKit;
 
@@ -101,8 +103,8 @@ internal sealed class WorkerHandle
         PipeName = pipeName;
         _process = process;
         _pipe = pipe;
-        _reader = new StreamReader(pipe, System.Text.Encoding.UTF8, false, 4096, leaveOpen: true);
-        _writer = new StreamWriter(pipe, System.Text.Encoding.UTF8, 4096, leaveOpen: true) { AutoFlush = true };
+        _reader = new StreamReader(pipe, Encoding.UTF8, false, 4096, true);
+        _writer = new StreamWriter(pipe, Encoding.UTF8, 4096, true);
         _idleSince = DateTime.UtcNow;
         _logger = logger ?? NullLogger.Instance;
     }
@@ -139,35 +141,31 @@ internal sealed class WorkerHandle
     /// <returns>The typed response from the worker.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the response type is unexpected or an error occurs.</exception>
     /// <exception cref="TimeoutException">Thrown when the worker does not respond in time.</exception>
-    public async Task<T> SendRequestAsync<T>(WorkerRequest request, TimeSpan? timeout = null)
-        where T : WorkerResponse
+    public async Task<T> SendRequestAsync<T>(WorkerRequest request, TimeSpan? timeout = null) where T : WorkerResponse
     {
         timeout ??= TimeSpan.FromMinutes(5);
 
-        await _sendLock.WaitAsync();
+        await _sendLock.WaitAsync().ConfigureAwait(false);
         try
         {
             _logger.LogDebug("Sending {RequestType} to worker '{PipeName}'", request.GetType().Name, PipeName);
             var json = IpcSerializer.Serialize(request);
-            await _writer.WriteLineAsync(json);
+            await _writer.WriteLineAsync(json).ConfigureAwait(false);
+            await _writer.FlushAsync().ConfigureAwait(false);
+            var response = await ReadResponseAsync(timeout.Value).ConfigureAwait(false);
 
-            var response = await ReadResponseAsync(timeout.Value);
-
-            if (response is T typed)
+            switch (response)
             {
-                _logger.LogDebug("Received {ResponseType} from worker '{PipeName}'", typeof(T).Name, PipeName);
-                return typed;
+                case T typed:
+                    _logger.LogDebug("Received {ResponseType} from worker '{PipeName}'", typeof(T).Name, PipeName);
+                    return typed;
+                case ErrorResponse err:
+                    _logger.LogError("Worker '{PipeName}' returned error: {Error}", PipeName, err.Message);
+                    throw new ConversionFailedException($"Worker error: {err.Message}");
+                default:
+                    _logger.LogError("Unexpected response type '{ResponseType}' from worker '{PipeName}'", response?.GetType().Name ?? "null", PipeName);
+                    throw new ConversionFailedException($"Unexpected response type: {response?.GetType().Name ?? "null"}");
             }
-
-            if (response is ErrorResponse err)
-            {
-                _logger.LogError("Worker '{PipeName}' returned error: {Error}", PipeName, err.Message);
-                throw new InvalidOperationException($"Worker error: {err.Message}");
-            }
-
-            _logger.LogError("Unexpected response type '{ResponseType}' from worker '{PipeName}'", response?.GetType().Name ?? "null", PipeName);
-            throw new InvalidOperationException(
-                $"Unexpected response type: {response?.GetType().Name ?? "null"}");
         }
         finally
         {
@@ -185,24 +183,24 @@ internal sealed class WorkerHandle
     /// <exception cref="TimeoutException">Thrown when the worker does not respond in time.</exception>
     public async Task<WorkerResponse?> ReadResponseAsync(TimeSpan timeout)
     {
-        using var cts = new CancellationTokenSource(timeout);
+        using var cancellationTokenSource = new CancellationTokenSource(timeout);
         try
         {
 #if NETSTANDARD2_0
             var readTask = _reader.ReadLineAsync();
-            var delayTask = Task.Delay(timeout, cts.Token);
-            if (await Task.WhenAny(readTask, delayTask) == delayTask)
-                throw new TimeoutException("Worker did not respond in time.");
-            var line = await readTask;
+            var delayTask = Task.Delay(timeout, cancellationTokenSource.Token);
+            if (await Task.WhenAny(readTask, delayTask).ConfigureAwait(false) == delayTask)
+                throw new TimeOutException("Worker did not respond in time.");
+
+            var line = await readTask.ConfigureAwait(false);
 #else
-            var line = await _reader.ReadLineAsync(cts.Token);
+            var line = await _reader.ReadLineAsync(cancellationTokenSource.Token).ConfigureAwait(false);
 #endif
-            if (line == null) return null;
-            return IpcSerializer.Deserialize<WorkerResponse>(line);
+            return line == null ? null : IpcSerializer.Deserialize<WorkerResponse>(line);
         }
         catch (OperationCanceledException)
         {
-            throw new TimeoutException("Worker did not respond in time.");
+            throw new TimeOutException("Worker did not respond in time.");
         }
     }
     #endregion
@@ -215,13 +213,13 @@ internal sealed class WorkerHandle
     /// <returns><c>true</c> if the worker responded with a pong; otherwise <c>false</c>.</returns>
     public async Task<bool> PingAsync(TimeSpan timeout)
     {
-        await _sendLock.WaitAsync();
+        await _sendLock.WaitAsync().ConfigureAwait(false);
         try
         {
             var json = IpcSerializer.Serialize<WorkerRequest>(new PingRequest());
-            await _writer.WriteLineAsync(json);
+            await _writer.WriteLineAsync(json).ConfigureAwait(false);
 
-            var response = await ReadResponseAsync(timeout);
+            var response = await ReadResponseAsync(timeout).ConfigureAwait(false);
             return response is PongResponse;
         }
         catch (Exception exception)
@@ -245,7 +243,7 @@ internal sealed class WorkerHandle
         try
         {
             var json = IpcSerializer.Serialize<WorkerRequest>(new ShutdownRequest());
-            await _writer.WriteLineAsync(json);
+            await _writer.WriteLineAsync(json).ConfigureAwait(false);
         }
         catch
         {
@@ -310,7 +308,6 @@ internal sealed class WorkerHandle
 #else
                 _process.Kill(true);
 #endif
-                _process.WaitForExit(3000);
             }
         }
         catch

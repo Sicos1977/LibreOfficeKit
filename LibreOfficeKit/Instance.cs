@@ -232,24 +232,24 @@ public sealed class Instance : IDisposable
         string[] knownPaths;
 
         if (RuntimeInformation.IsOSPlatform(OSPlatform.Linux))
-            knownPaths = new[]
-            {
+            knownPaths =
+            [
                 "/usr/lib64/libreoffice/program",
                 "/usr/lib/libreoffice/program"
-            };
+            ];
         else if (RuntimeInformation.IsOSPlatform(OSPlatform.OSX))
-            knownPaths = new[]
-            {
+            knownPaths =
+            [
                 "/usr/lib64/libreoffice/program",
                 "/usr/lib/libreoffice/program",
                 "/Applications/LibreOffice.app/Contents/Frameworks"
-            };
+            ];
         else
-            knownPaths = new[]
-            {
+            knownPaths =
+            [
                 @"C:\Program Files\LibreOffice\program",
                 @"C:\Program Files (x86)\LibreOffice\program"
-            };
+            ];
 
         foreach (var path in knownPaths)
             if (Directory.Exists(path))

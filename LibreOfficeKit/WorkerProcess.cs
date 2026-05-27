@@ -28,6 +28,7 @@ using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using System.IO.Pipes;
+// ReSharper disable UnusedMember.Global
 
 namespace LibreOfficeKit;
 
@@ -54,7 +55,7 @@ public static class WorkerProcess
         try
         {
             logger.LogDebug("Connecting to pipe '{PipeName}'", pipeName);
-            await pipeClient.ConnectAsync(10_000);
+            await pipeClient.ConnectAsync(5000).ConfigureAwait(false);
             logger.LogDebug("Connected to pipe '{PipeName}'", pipeName);
         }
         catch (TimeoutException)
@@ -63,9 +64,16 @@ public static class WorkerProcess
             return 1;
         }
 
-        using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, leaveOpen: true);
-        using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, leaveOpen: true);
+        using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, true);
+        using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true);
         writer.AutoFlush = true;
+
+        var startupDelayText = Environment.GetEnvironmentVariable("LOK_WORKER_STARTUP_DELAY_MS");
+        if (int.TryParse(startupDelayText, out var startupDelayMs) && startupDelayMs > 0)
+        {
+            logger.LogWarning("Delaying worker startup by {DelayMs} ms", startupDelayMs);
+            await Task.Delay(startupDelayMs).ConfigureAwait(false);
+        }
 
         Instance? office;
 
@@ -76,19 +84,19 @@ public static class WorkerProcess
             if (installPath == null)
             {
                 logger.LogError("LibreOffice installation not found");
-                await SendAsync(writer, new ErrorResponse("LibreOffice installation not found."));
+                await SendAsync(writer, new ErrorResponse("LibreOffice installation not found.")).ConfigureAwait(false);
                 return 1;
             }
 
             logger.LogDebug("Found LibreOffice at '{InstallPath}'", installPath);
             office = Instance.Create(installPath);
             logger.LogInformation("LibreOffice initialized successfully");
-            await SendAsync(writer, new ReadyResponse());
+            await SendAsync(writer, new ReadyResponse()).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to initialize LibreOffice");
-            await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'"));
+            await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'")).ConfigureAwait(false);
             return 1;
         }
 
@@ -96,9 +104,12 @@ public static class WorkerProcess
         {
             while (true)
             {
-                var line = await reader.ReadLineAsync();
-                if (line == null)
-                    break;
+                var line = await reader.ReadLineAsync().ConfigureAwait(false);
+
+                if (string.IsNullOrWhiteSpace(line))
+                    continue;
+
+                logger.LogDebug("Received line: {Line}", line);
 
                 WorkerRequest? request;
                 try
@@ -117,18 +128,17 @@ public static class WorkerProcess
                 {
                     case PingRequest:
                         logger.LogDebug("Received ping, sending pong");
-                        await SendAsync(writer, new PongResponse());
+                        await SendAsync(writer, new PongResponse()).ConfigureAwait(false);
                         break;
 
                     case ConvertRequest convert:
-                        logger.LogInformation("Received conversion request: '{InputFile}' -> '{OutputFile}'",
-                            convert.InputFile, convert.OutputFile);
-                        await HandleConvertAsync(office, convert, writer, logger);
+                        logger.LogInformation("Received conversion request: '{InputFile}' -> '{OutputFile}'", convert.InputFile, convert.OutputFile);
+                        await HandleConvertAsync(office, convert, writer, logger).ConfigureAwait(false);
                         break;
 
                     case ShutdownRequest:
                         logger.LogInformation("Received shutdown request. Exiting.");
-                        await SendAsync(writer, new PongResponse());
+                        await SendAsync(writer, new PongResponse()).ConfigureAwait(false);
                         return 0;
                 }
             }
@@ -137,8 +147,6 @@ public static class WorkerProcess
         {
             office.Dispose();
         }
-
-        return 0;
     }
     #endregion
 
@@ -165,19 +173,19 @@ public static class WorkerProcess
             if (success)
             {
                 logger.LogInformation("Conversion succeeded: '{OutputFile}'", request.OutputFile);
-                await SendAsync(writer, new ConvertResponse(true));
+                await SendAsync(writer, new ConvertResponse(true)).ConfigureAwait(false);
             }
             else
             {
                 var error = office.GetError();
-                logger.LogError("Conversion failed for '{InputFile}': {Error}", request.InputFile, error ?? "SaveAs returned failure.");
-                await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure."));
+                logger.LogError("Conversion failed for '{InputFile}': '{Error}'", request.InputFile, error ?? "SaveAs returned failure.");
+                await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure.")).ConfigureAwait(false);
             }
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Exception during conversion of '{InputFile}'", request.InputFile);
-            await SendAsync(writer, new ConvertResponse(false, exception.Message));
+            await SendAsync(writer, new ConvertResponse(false, exception.Message)).ConfigureAwait(false);
         }
     }
     #endregion
@@ -191,7 +199,8 @@ public static class WorkerProcess
     private static async Task SendAsync(StreamWriter writer, WorkerResponse response)
     {
         var json = IpcSerializer.Serialize(response);
-        await writer.WriteLineAsync(json);
+        await writer.WriteLineAsync(json).ConfigureAwait(false);
+        await writer.FlushAsync().ConfigureAwait(false);
     }
     #endregion
 }

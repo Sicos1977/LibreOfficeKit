@@ -9,7 +9,20 @@
     </PropertyGroup>
 
     <ItemGroup>
-        <ProjectReference Include="..\LibreOfficeKit\LibreOfficeKit.csproj"/>
+        <ProjectReference Include="..\LibreOfficeKit\LibreOfficeKit.csproj" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <Folder Include="TestFiles\" />
+    </ItemGroup>
+
+    <ItemGroup>
+      <None Update="TestFiles\A DOC word document with 7 embedded files.doc">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
+      <None Update="TestFiles\A DOCX word document with password.docx">
+        <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+      </None>
     </ItemGroup>
 
 </Project>

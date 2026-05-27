@@ -1,5 +1,5 @@
-﻿//
-// ConvertResponse.cs
+//
+// ConversionFailedException.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -22,26 +22,36 @@
 // LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
-//
 
-namespace LibreOfficeKit.Protocols;
+namespace LibreOfficeKit.Exceptions;
 
 /// <summary>
-///     Result of a conversion request.
+///     Raised when a conversion fails.
 /// </summary>
-/// <paramref name="success">Indicates whether the conversion succeeded.</paramref>
-/// <paramref name="error">The error message if the conversion failed; otherwise <c>null</c>.</paramref>
-internal sealed class ConvertResponse(bool success, string? error = null) : WorkerResponse
+public sealed class ConversionFailedException : Exception
 {
-    #region Properties
     /// <summary>
-    ///     Gets a value indicating whether the conversion succeeded.
+    ///     Raised when a conversion fails.
     /// </summary>
-    public bool Success { get; } = success;
+    public ConversionFailedException()
+    {
+    }
 
     /// <summary>
-    ///     Gets the error message if the conversion failed; otherwise <c>null</c>.
+    ///     Initializes a new instance of the <see cref="ConversionFailedException"/> class with a specified error message.
     /// </summary>
-    public string? Error { get; } = error;
-    #endregion
+    /// <param name="message">The message that describes the error.</param>
+    public ConversionFailedException(string message) : base(message)
+    {
+    }
+
+    /// <summary>
+    ///     Initializes a new instance of the <see cref="ConversionFailedException"/> class with a specified error message and a
+    ///     reference to the inner exception that is the cause of this exception.
+    /// </summary>
+    /// <param name="message">The error message that explains the reason for the exception.</param>
+    /// <param name="innerException">The exception that is the cause of the current exception, or null if no inner exception is specified.</param>  
+    public ConversionFailedException(string message, Exception innerException) : base(message, innerException)
+    {
+    }
 }

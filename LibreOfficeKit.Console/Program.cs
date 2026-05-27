@@ -62,7 +62,7 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         if (args is ["--worker", _, ..])
-            return await WorkerProcess.RunAsync(args[1]);
+            return await WorkerProcess.RunAsync(args[1]).ConfigureAwait(false);
 
         System.Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
         System.Console.WriteLine("  Multi-process pool architecture with hot standby");
@@ -78,7 +78,7 @@ internal static class Program
                 ? args[1]
                 : Path.ChangeExtension(inputFile, ".pdf");
 
-            return await RunPoolConversionAsync(inputFile, outputFile);
+            return await RunPoolConversionAsync(inputFile, outputFile).ConfigureAwait(false);
         }
 
         // No arguments — show usage
@@ -102,7 +102,7 @@ internal static class Program
     {
         if (!File.Exists(inputFile))
         {
-            await System.Console.Error.WriteLineAsync($"ERROR: Input file not found: '{inputFile}'");
+            await System.Console.Error.WriteLineAsync($"ERROR: Input file not found: '{inputFile}', working directory: '{Directory.GetCurrentDirectory()}'").ConfigureAwait(false);
             return 1;
         }
 
@@ -116,7 +116,7 @@ internal static class Program
 
             System.Console.Write("Converting to PDF (via worker pool)... ");
 
-            await converter.ConvertToPdfAsync(inputFile, outputFile);
+            await converter.ConvertToPdfAsync(inputFile, outputFile).ConfigureAwait(false);
 
             System.Console.WriteLine("OK");
 
@@ -128,9 +128,9 @@ internal static class Program
 
             return 0;
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            await System.Console.Error.WriteLineAsync($"FAILED\n  Error: '{ex.Message}'");
+            await System.Console.Error.WriteLineAsync($"FAILED\n  Error: '{exception.Message}'").ConfigureAwait(false);
             return 1;
         }
     }
@@ -166,7 +166,7 @@ internal static class Program
 
             if (!File.Exists(inputFile))
             {
-                System.Console.Error.WriteLine($"ERROR: Input file not found: '{inputFile}'");
+                System.Console.Error.WriteLine($"ERROR: Input file not found: '{inputFile}', working directory: '{Directory.GetCurrentDirectory()}'");
                 return 1;
             }
 

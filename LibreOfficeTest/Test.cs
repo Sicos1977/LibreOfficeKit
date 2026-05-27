@@ -1,4 +1,5 @@
 ﻿using LibreOfficeKit;
+using LibreOfficeKit.Exceptions;
 
 //
 // LibreOfficeTest.cs
@@ -32,16 +33,37 @@ namespace LibreOfficeTest;
 public class ConverterTests
 {
     #region Fields
-    private Converter _converter = null!;
-    private DirectoryInfo _tempDirectory = null!;
+    private static Converter _converter = null!;
+    private static DirectoryInfo _tempDirectory = null!;
     #endregion
 
     [TestMethod]
-    public async Task FileTypeNotSupported()
+    public async Task ConvertToPdfAsync_Timeouts_WhenWorkerIsDelayed()
     {
-        var outputFile = Path.Combine(_tempDirectory.FullName, "filetypenotsupported.pdf");
-        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "filetypenotsupported.txt"), outputFile);
-        Assert.IsFalse(File.Exists(outputFile));
+        var workerPath = Path.Combine(AppContext.BaseDirectory, "LibreOfficeKit.Console.exe");
+        var outputFile = Path.Combine(_tempDirectory.FullName, "timeout.pdf");
+
+        var previousDelay = Environment.GetEnvironmentVariable("LOK_WORKER_STARTUP_DELAY_MS");
+        Environment.SetEnvironmentVariable("LOK_WORKER_STARTUP_DELAY_MS", "5000");
+
+        try
+        {
+            await using var delayedConverter = new Converter(1, 0, TimeSpan.FromMinutes(5), workerPath);
+
+            try
+            {
+                await delayedConverter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "filetypenotsupported.txt"), outputFile, TimeSpan.FromMilliseconds(100));
+                Assert.Fail("Expected a timeout exception.");
+            }
+            catch (TimeOutException)
+            {
+                // expected
+            }
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("LOK_WORKER_STARTUP_DELAY_MS", previousDelay);
+        }
     }
 
     [TestMethod]
@@ -308,17 +330,19 @@ public class ConverterTests
     #endregion
 
     #region Helper methods
-    [TestInitialize]
-    public void TestInitialize()
+    [ClassInitialize]
+    public static void TestInitialize(TestContext context)
     {
         var tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         _tempDirectory = new DirectoryInfo(tempDirectory);
         _tempDirectory.Create();
-        _converter = new TestConverter(2, 1, new TimeSpan(0, 5, 0), @"..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe");
+        //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0));
+        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe");
+        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe");
     }
 
-    [TestCleanup]
-    public async Task TestCleanup()
+    [ClassCleanup]
+    public static async Task TestCleanup()
     {
         if (_tempDirectory.Exists)
             _tempDirectory.Delete(true);

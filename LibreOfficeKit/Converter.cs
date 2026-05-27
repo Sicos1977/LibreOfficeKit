@@ -38,6 +38,7 @@
 //   - IDisposable: proper cleanup of all workers and resources
 // =============================================================================
 
+using LibreOfficeKit.Exceptions;
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -88,6 +89,11 @@ public class Converter : IDisposable, IAsyncDisposable
     ///     Time after which idle workers (beyond hot standby) are shut down.
     /// </summary>
     private readonly TimeSpan _idleTimeout;
+
+    /// <summary>
+    ///     The path to the worker console executable. If null or empty, it will be resolved automatically.
+    /// </summary>
+    private readonly string? _workerExePath;
 
     /// <summary>
     ///     Collection of idle workers available for use.
@@ -152,13 +158,6 @@ public class Converter : IDisposable, IAsyncDisposable
     private readonly ILogger<Converter> _logger;
     #endregion
 
-    #region Properties
-    /// <summary>
-    ///     Path to the worker executable. Can be overridden for testing purposes.
-    /// </summary>
-    protected virtual string? WorkerExePath { get; set; }
-    #endregion
-
     #region Converter
     /// <summary>
     ///     Creates a new <see cref="Converter" /> with the specified pool configuration.
@@ -168,7 +167,8 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <param name="minHotStandby">Number of workers to start immediately and keep warm.</param>
     /// <param name="idleTimeout">Time after which idle workers (beyond hot standby) are shut down.</param>
     /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
-    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, ILogger<Converter>? logger = null)
+    /// <param name="workerExePath">Optional path to the worker executable. If null or empty, it will be resolved automatically.</param>
+    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger<Converter>? logger = null)
     {
         _logger = logger ?? NullLogger<Converter>.Instance;
         if (maxInstances < 1)
@@ -185,18 +185,43 @@ public class Converter : IDisposable, IAsyncDisposable
         _poolSemaphore = new SemaphoreSlim(maxInstances, maxInstances);
         _workerAvailable = new SemaphoreSlim(0, maxInstances);
 
-        if (!string.IsNullOrWhiteSpace(WorkerExePath))
-            WorkerExePath = ResolveWorkerExePath();
+        if (!string.IsNullOrWhiteSpace(workerExePath))
+        {
+            if (!File.Exists(workerExePath))
+                throw new FileNotFoundException($"Specified worker executable '{workerExePath}' not found, current working directory '{Environment.CurrentDirectory}'.", workerExePath);
+
+            _workerExePath = workerExePath;
+        }
+        else
+            _workerExePath = ResolveWorkerExePath();
+
+        if (string.IsNullOrWhiteSpace(_workerExePath))
+            throw new InvalidOperationException("Worker executable path could not be resolved, try to specify it explicitly.");
 
         _logger.LogInformation("Converter initialized: maxInstances={MaxInstances}, minHotStandby={MinHotStandby}, idleTimeout={IdleTimeout}", maxInstances, minHotStandby, idleTimeout);
 
         for (var i = 0; i < minHotStandby; i++)
+        {
+            lock (_scaleLock)
+            {
+                _totalWorkerCount++;
+            }
+
             SpawnWorkerAsync().ContinueWith(t =>
             {
-                if (t.Status != TaskStatus.RanToCompletion || t.Result == null) return;
-                _availableWorkers.Add(t.Result);
-                _workerAvailable.Release();
+                if (t.Status == TaskStatus.RanToCompletion && t.Result != null)
+                {
+                    _availableWorkers.Add(t.Result);
+                    _workerAvailable.Release();
+                    return;
+                }
+
+                lock (_scaleLock)
+                {
+                    _totalWorkerCount = Math.Max(0, _totalWorkerCount - 1);
+                }
             }, TaskScheduler.Default);
+        }
 
         _healthMonitorTask = Task.Run(() => HealthMonitorLoopAsync(_cancellationTokenSource.Token));
         _idleMonitorTask = Task.Run(() => IdleMonitorLoopAsync(_cancellationTokenSource.Token));
@@ -209,9 +234,17 @@ public class Converter : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="inputFile">Path to the input document.</param>
     /// <param name="outputFile">Path where the PDF will be written.</param>
-    public async Task ConvertToPdfAsync(string inputFile, string outputFile)
+    /// <param name="timeout">Optional timeout for the conversion operation, when specified.</param>
+    /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
+    /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
+    /// <exception cref="TimeoutException">Thrown when the conversion times out.</exception>
+    /// <exception cref="InvalidOperationException">Thrown when the conversion fails.</exception>
+    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
+
+        if (timeout.HasValue && timeout.Value <= TimeSpan.Zero)
+            throw new TimeOutException("Must be greater than zero.");
 
         if (!File.Exists(inputFile))
             throw new FileNotFoundException("Input file not found.", inputFile);
@@ -225,20 +258,27 @@ public class Converter : IDisposable, IAsyncDisposable
         if (outputDir != null && !Directory.Exists(outputDir))
             Directory.CreateDirectory(outputDir);
 
+        DateTime? deadline = timeout.HasValue ? DateTime.UtcNow.Add(timeout.Value) : null;
+
         await ExecuteOnWorkerAsync(async worker =>
         {
-            _logger.LogDebug("Dispatching conversion to worker '{PipeName}", worker.PipeName);
+            _logger.LogDebug("Dispatching conversion to worker '{PipeName}'", worker.PipeName);
             var request = new ConvertRequest(inputFile, outputFile);
-            var response = await worker.SendRequestAsync<ConvertResponse>(request);
+            var requestTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : (TimeSpan?)null;
+
+            if (requestTimeout.HasValue && requestTimeout.Value <= TimeSpan.Zero)
+                throw new TimeOutException("Conversion timed out.");
+
+            var response = await worker.SendRequestAsync<ConvertResponse>(request, requestTimeout).ConfigureAwait(false);
 
             if (!response.Success)
             {
                 _logger.LogError("PDF conversion failed for '{InputFile}': '{Error}'", inputFile, response.Error ?? "Unknown error");
-                throw new InvalidOperationException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
+                throw new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'");
             }
 
             _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
-        });
+        }, deadline).ConfigureAwait(false);
     }
 
     /// <summary>
@@ -248,7 +288,7 @@ public class Converter : IDisposable, IAsyncDisposable
     /// </summary>
     /// <param name="inputStream">Stream containing the input document.</param>
     /// <param name="outputStream">Stream where the PDF will be written.</param>
-    public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream)
+    public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream, TimeSpan? timeout = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
@@ -259,20 +299,21 @@ public class Converter : IDisposable, IAsyncDisposable
         {
 #if NETSTANDARD2_0
             using (var inputFileStream = File.Create(tempInputFile))
-                await inputStream.CopyToAsync(inputFileStream);
+                await inputStream.CopyToAsync(inputFileStream).ConfigureAwait(false);
 
-            await ConvertToPdfAsync(tempInputFile, tempOutputFile);
+            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout).ConfigureAwait(false);
 
             using (var outputFileStream = File.OpenRead(tempOutputFile))
-                await outputFileStream.CopyToAsync(outputStream);
+                await outputFileStream.CopyToAsync(outputStream).ConfigureAwait(false);
 #else
             await using var inputFileStream = File.Create(tempInputFile);
-            await inputStream.CopyToAsync(inputFileStream);
+            await inputStream.CopyToAsync(inputFileStream).ConfigureAwait(false);
 
-            await ConvertToPdfAsync(tempInputFile, tempOutputFile);
+            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout).ConfigureAwait(false);
 
             await using var outputFileStream = File.OpenRead(tempOutputFile);
-            await outputFileStream.CopyToAsync(outputStream);
+            await outputFileStream.CopyToAsync(outputStream).ConfigureAwait(false);
+
 #endif
         }
         finally
@@ -289,7 +330,7 @@ public class Converter : IDisposable, IAsyncDisposable
     ///     If all workers are busy and maxInstances is reached, queues until one is free.
     /// </summary>
     /// <param name="action">The action to execute on the worker.</param>
-    private async Task ExecuteOnWorkerAsync(Func<WorkerHandle, Task> action)
+    private async Task ExecuteOnWorkerAsync(Func<WorkerHandle, Task> action, DateTime? deadline = null)
     {
         WorkerHandle? worker = null;
 
@@ -297,44 +338,62 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             if (!_availableWorkers.TryTake(out worker))
             {
-                bool canSpawn;
-                lock (_scaleLock)
+                while (worker == null)
                 {
-                    canSpawn = _totalWorkerCount < _maxInstances;
-                    if (canSpawn)
-                        _totalWorkerCount++;
-                }
-
-                if (canSpawn)
-                {
-                    worker = await SpawnWorkerAsync();
-                    if (worker == null)
+                    bool canSpawn;
+                    lock (_scaleLock)
                     {
+                        canSpawn = _totalWorkerCount < _maxInstances;
+                        if (canSpawn)
+                            _totalWorkerCount++;
+                    }
+
+                    if (canSpawn)
+                    {
+                        worker = await SpawnWorkerAsync(deadline).ConfigureAwait(false);
+                        if (worker != null)
+                            break;
+
                         lock (_scaleLock)
                         {
-                            _totalWorkerCount--;
+                            _totalWorkerCount = Math.Max(0, _totalWorkerCount - 1);
                         }
 
-                        throw new InvalidOperationException("Failed to spawn worker process.");
+                        if (deadline.HasValue && DateTime.UtcNow >= deadline.Value)
+                            throw new TimeOutException("Conversion timed out.");
                     }
-                }
-                else
-                {
-                    await _workerAvailable.WaitAsync(_cancellationTokenSource.Token);
-                    if (!_availableWorkers.TryTake(out worker))
-                        throw new InvalidOperationException("No worker available after signal.");
+                    else
+                    {
+                        if (deadline.HasValue)
+                        {
+                            var remaining = GetRemainingTimeout(deadline.Value);
+                            if (remaining <= TimeSpan.Zero)
+                                throw new TimeOutException("Conversion timed out.");
+
+                            var signaled = await _workerAvailable.WaitAsync(remaining, _cancellationTokenSource.Token).ConfigureAwait(false);
+                            if (!signaled)
+                                throw new TimeOutException("Conversion timed out.");
+
+                            _availableWorkers.TryTake(out worker);
+                        }
+                        else
+                        {
+                            await _workerAvailable.WaitAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
+                            _availableWorkers.TryTake(out worker);
+                        }
+                    }
                 }
             }
 
             if (!worker.IsAlive)
             {
                 RemoveWorker(worker);
-                await ExecuteOnWorkerAsync(action);
+                await ExecuteOnWorkerAsync(action, deadline).ConfigureAwait(false);
                 return;
             }
 
             worker.MarkBusy();
-            await action(worker);
+            await action(worker).ConfigureAwait(false);
         }
         finally
         {
@@ -358,13 +417,14 @@ public class Converter : IDisposable, IAsyncDisposable
     ///     Spawns a new worker process, sets up the named pipe, and waits for the worker to report ready.
     /// </summary>
     /// <returns>A <see cref="WorkerHandle" /> for the new worker, or <c>null</c> if spawning failed.</returns>
-    private async Task<WorkerHandle?> SpawnWorkerAsync()
+    private async Task<WorkerHandle?> SpawnWorkerAsync(DateTime? deadline = null)
     {
+        var defaultTimeout = TimeSpan.FromSeconds(10);
         var pipeName = $"lok_worker_{Guid.NewGuid():N}";
         var pipeServer = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
         var processStartInfo = new ProcessStartInfo
         {
-            FileName = WorkerExePath,
+            FileName = _workerExePath!,
             Arguments = $"--worker {pipeName}",
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -378,15 +438,15 @@ public class Converter : IDisposable, IAsyncDisposable
         try
         {
             process = Process.Start(processStartInfo);
-            if (process == null)
+            if (process == null || process.HasExited)
             {
                 _logger.LogError("Failed to start worker process for pipe '{PipeName}'", pipeName);
 #if (NETSTANDARD2_0)
                 pipeServer.Dispose();
 #else
-                await pipeServer.DisposeAsync();
+                await pipeServer.DisposeAsync().ConfigureAwait(false);
 #endif
-                return null;
+                throw new ConversionFailedException("Failed to start worker process.");
             }
         }
         catch (Exception exception)
@@ -395,19 +455,30 @@ public class Converter : IDisposable, IAsyncDisposable
 #if (NETSTANDARD2_0)
             pipeServer.Dispose();
 #else
-            await pipeServer.DisposeAsync();
+            await pipeServer.DisposeAsync().ConfigureAwait(false);
 #endif
-            return null;
+            throw new ConversionFailedException("Exception starting worker process.", exception);
         }
 
         try
         {
-            using var connectCts = new CancellationTokenSource(TimeSpan.FromSeconds(30));
-            await pipeServer.WaitForConnectionAsync(connectCts.Token);
+            var connectionTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : defaultTimeout;
+            if (connectionTimeout <= TimeSpan.Zero)
+                throw new TimeOutException("Conversion timed out.");
+
+            using var cancellationTokenSource = new CancellationTokenSource(connectionTimeout);
+            await pipeServer.WaitForConnectionAsync(cancellationTokenSource.Token).ConfigureAwait(false);
+            _logger.LogInformation("Connected to pipe '{PipeName}'", pipeName);
 
             var handle = new WorkerHandle(pipeName, process, pipeServer, _logger);
+            if (!pipeServer.IsConnected || process.HasExited)
+                throw new IOException("Could not establish connection to worker process.");
 
-            var response = await handle.ReadResponseAsync(TimeSpan.FromSeconds(30));
+            var responseTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : defaultTimeout;
+            if (responseTimeout <= TimeSpan.Zero)
+                throw new TimeOutException("Conversion timed out.");
+
+            var response = await handle.ReadResponseAsync(responseTimeout).ConfigureAwait(false);
 
             switch (response)
             {
@@ -419,11 +490,29 @@ public class Converter : IDisposable, IAsyncDisposable
 
                 case ErrorResponse errorResponse:
                     _logger.LogError("Worker init error on pipe '{PipeName}': '{Error}'", pipeName, errorResponse.Message);
-                    break;
+                    throw new ConversionFailedException($"Worker init error: '{errorResponse.Message}'");
             }
 
             handle.Kill();
-            return null;
+            throw new ConversionFailedException("Worker did not report ready.");
+        }
+        catch (TimeOutException)
+        {
+            try
+            {
+                process.Kill();
+            }
+            catch
+            {
+                // ignored
+            }
+
+#if (NETSTANDARD2_0)
+            pipeServer.Dispose();
+#else
+            await pipeServer.DisposeAsync().ConfigureAwait(false);
+#endif
+            throw;
         }
         catch (Exception exception)
         {
@@ -440,9 +529,9 @@ public class Converter : IDisposable, IAsyncDisposable
 #if (NETSTANDARD2_0)
             pipeServer.Dispose();
 #else
-            await pipeServer.DisposeAsync();
+            await pipeServer.DisposeAsync().ConfigureAwait(false);
 #endif
-            return null;
+            throw new ConversionFailedException("Failed to spawn worker.", exception);
         }
     }
     #endregion
@@ -468,7 +557,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
             if (!canSpawn) break;
 
-            var worker = await SpawnWorkerAsync();
+            var worker = await SpawnWorkerAsync().ConfigureAwait(false);
             if (worker != null)
             {
                 _availableWorkers.Add(worker);
@@ -513,7 +602,7 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(15), ct);
+                await Task.Delay(TimeSpan.FromSeconds(15), ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -536,7 +625,7 @@ public class Converter : IDisposable, IAsyncDisposable
                 try
                 {
                     _logger.LogDebug("Pinging worker '{PipeName}'", worker.PipeName);
-                    var pong = await worker.PingAsync(TimeSpan.FromSeconds(5));
+                    var pong = await worker.PingAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
                     if (!pong)
                     {
                         _logger.LogWarning("Worker '{PipeName}' did not respond to ping. Recycling.", worker.PipeName);
@@ -556,7 +645,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
             try
             {
-                await EnsureHotStandbyAsync();
+                await EnsureHotStandbyAsync().ConfigureAwait(false);
             }
             catch (Exception exception)
             {
@@ -577,7 +666,7 @@ public class Converter : IDisposable, IAsyncDisposable
         {
             try
             {
-                await Task.Delay(TimeSpan.FromSeconds(10), ct);
+                await Task.Delay(TimeSpan.FromSeconds(10), ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException)
             {
@@ -617,15 +706,15 @@ public class Converter : IDisposable, IAsyncDisposable
     private static string ResolveWorkerExePath()
     {
         var entryAssembly = Assembly.GetEntryAssembly();
-        
+
         if (entryAssembly == null)
             throw new InvalidOperationException("Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
 
         var entryLocation = entryAssembly.Location;
-        
+
         if (string.IsNullOrEmpty(entryLocation) || !File.Exists(entryLocation))
             throw new InvalidOperationException("Cannot determine the worker executable path. Ensure the application is published or run via 'dotnet run'.");
-        
+
         var currentExeName = Path.GetFileNameWithoutExtension(entryLocation);
 
         // If running the console app directly, use it
@@ -640,6 +729,19 @@ public class Converter : IDisposable, IAsyncDisposable
 
         return File.Exists(consoleExePath) ? consoleExePath : $"dotnet \"{entryLocation}\"";
     }
+
+    #region GetRemainingTimeout
+    /// <summary>
+    ///     Calculates the remaining timeout duration from a deadline.
+    /// </summary>
+    /// <param name="deadline">The absolute deadline.</param>
+    /// <returns>The remaining time until the deadline, or <see cref="TimeSpan.Zero" /> if it has passed.</returns>
+    private static TimeSpan GetRemainingTimeout(DateTime deadline)
+    {
+        var remaining = deadline - DateTime.UtcNow;
+        return remaining > TimeSpan.Zero ? remaining : TimeSpan.Zero;
+    }
+    #endregion
     #endregion
 
     #region TryDeleteFile
@@ -667,7 +769,7 @@ public class Converter : IDisposable, IAsyncDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        var timeout = TimeSpan.FromSeconds(5);
+        var timeout = TimeSpan.FromSeconds(1);
 
         _cancellationTokenSource.Cancel();
 
@@ -720,16 +822,16 @@ public class Converter : IDisposable, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        var timeout = TimeSpan.FromSeconds(5);
+        var timeout = TimeSpan.FromSeconds(1);
 
-        await _cancellationTokenSource.CancelAsync();
+        await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
 
         var shutdownTasks = _allWorkers.Select(kvp => Task.Run(async () =>
             {
                 try
                 {
-                    await kvp.Value.SendShutdownAsync();
-                    await Task.Delay(10);
+                    await kvp.Value.SendShutdownAsync().ConfigureAwait(false);
+                    await Task.Delay(10).ConfigureAwait(false);
                 }
                 catch
                 {
@@ -741,13 +843,13 @@ public class Converter : IDisposable, IAsyncDisposable
             .ToList();
 
         if (shutdownTasks.Count > 0)
-            await Task.WhenAll(shutdownTasks).WaitAsync(timeout);
+            await Task.WhenAll(shutdownTasks).WaitAsync(timeout).ConfigureAwait(false);
 
         _allWorkers.Clear();
 
         try
         {
-            await _healthMonitorTask.WaitAsync(timeout);
+            await _healthMonitorTask.WaitAsync(timeout).ConfigureAwait(false);
         }
         catch
         {
@@ -756,7 +858,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
         try
         {
-            await _idleMonitorTask.WaitAsync(timeout);
+            await _idleMonitorTask.WaitAsync(timeout).ConfigureAwait(false);
         }
         catch
         {
