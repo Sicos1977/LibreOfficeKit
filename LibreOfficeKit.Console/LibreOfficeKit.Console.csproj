@@ -12,6 +12,7 @@
   <PropertyGroup>
     <DebugType>portable</DebugType>
     <DebugSymbols>true</DebugSymbols>
+    <ApplicationIcon>LibreOffice.ico</ApplicationIcon>
   </PropertyGroup>
 
   <PropertyGroup Condition="'$(Configuration)' == 'Release'">
@@ -20,6 +21,10 @@
     <PublishTrimmed>true</PublishTrimmed>
     <TrimMode>full</TrimMode>
   </PropertyGroup>
+
+  <ItemGroup>
+    <Content Include="LibreOffice.ico" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\LibreOfficeKit\LibreOfficeKit.csproj" />
