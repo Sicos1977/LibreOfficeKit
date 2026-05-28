@@ -25,23 +25,13 @@
 //
 
 using Microsoft.Extensions.Logging;
+using System.Diagnostics;
 
 namespace LibreOfficeTest;
 
 /// <summary>
-///     An <see cref="ILoggerProvider" /> that writes log messages to <see cref="Console.WriteLine(string)" />.
-///     MSTest captures console output per test and shows it in the test result, making this reliable even when
-///     a single logger instance is shared across multiple tests (e.g. via a static <c>Converter</c> field).
-/// </summary>
-internal sealed class TestContextLoggerProvider : ILoggerProvider
-{
-    public ILogger CreateLogger(string categoryName) => new TestContextLogger(categoryName);
-
-    public void Dispose() { }
-}
-
-/// <summary>
-///     Writes <see cref="ILogger" /> messages to <see cref="Console.Out" />.
+///     Writes <see cref="ILogger" /> messages to <see cref="Console.Out" /> and <see cref="Trace" /> 
+///     for real-time visibility in test runners and debug output.
 /// </summary>
 internal sealed class TestContextLogger(string categoryName) : ILogger
 {
@@ -66,9 +56,10 @@ internal sealed class TestContextLogger(string categoryName) : ILogger
             _                    => "   "
         };
 
-        Console.WriteLine($"[{level}] {categoryName}: {message}");
-
-        if (exception != null)
-            Console.WriteLine(exception.ToString());
+        var logMessage = $"[{level}] {categoryName}: {message}";
+        Debug.WriteLine(logMessage);
+        if (exception == null) return;
+        var exceptionText = exception.ToString();
+        Debug.WriteLine(exceptionText);
     }
 }

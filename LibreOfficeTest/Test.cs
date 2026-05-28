@@ -35,7 +35,7 @@ public class ConverterTests
     #region Fields
     private static Converter _converter = null!;
     private static DirectoryInfo _tempDirectory = null!;
-    private static TestContext _context = null!;
+    private static TestContext _testContext = null!;
     #endregion
 
     [TestMethod]
@@ -80,6 +80,7 @@ public class ConverterTests
 
     #region Microsoft Office Word tests
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOC word document without embedded files.pdf");
@@ -88,6 +89,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocWith7EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOC word document with 7 embedded files.pdf");
@@ -138,7 +140,7 @@ public class ConverterTests
     public async Task DocxWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOCX word document with password.pdf");
-        await Assert.ThrowsAsync<ConversionFailedException>(async () =>
+        await Assert.ThrowsAsync<FilePasswordProtectedException>(async () =>
         {
             await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A DOCX word document with password.docx"), outputFile);
         });
@@ -147,12 +149,14 @@ public class ConverterTests
 
     #region Microsoft Office Excel tests
     [TestMethod]
+    [Timeout(10000)]
     public async Task XlsWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A XLS excel document without embedded files.pdf");
-        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A XLS excel document without embedded files.xls"), outputFile);
+        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A XLS excel document without embedded files.xls"), outputFile, timeout: TimeSpan.FromMinutes(2));
         Assert.IsTrue(File.Exists(outputFile));
     }
+
 
     [TestMethod]
     public async Task XlsWith2EmbeddedFiles()
@@ -184,6 +188,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task XlsxWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A XLSX excel document without embedded files.pdf");
@@ -343,12 +348,15 @@ public class ConverterTests
     [ClassInitialize]
     public static void TestInitialize(TestContext context)
     {
-        _context = context;
+        _testContext = context;
         var tempDirectory = Path.Combine(Path.GetTempPath(), Guid.NewGuid().ToString());
         _tempDirectory = new DirectoryInfo(tempDirectory);
         _tempDirectory.Create();
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).SetMinimumLevel(LogLevel.Debug));
+
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).AddFilter(null, LogLevel.Trace));
         var logger = loggerFactory.CreateLogger<Converter>();
+        logger.LogInformation("Logger initialized, creating Converter...");
+
         //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0), logger: logger);
         _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe", logger);
     }

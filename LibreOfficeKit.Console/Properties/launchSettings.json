@@ -2,7 +2,7 @@
   "profiles": {
     "LibreOfficeKit.Console": {
       "commandName": "Project",
-      "commandLineArgs": "--direct \"TestFiles\\A DOC word document with 7 embedded files.doc\" d:\\test.pdf"
+      "commandLineArgs": "--direct d:\\test.docx d:\\test.pdf"
     }
   }
 }

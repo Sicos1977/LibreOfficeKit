@@ -38,7 +38,11 @@ namespace LibreOfficeKit;
 ///     Represents a handle to a single LibreOffice worker process,
 ///     encapsulating its OS process, named pipe, and communication channels.
 /// </summary>
-internal sealed class WorkerHandle
+#if NETSTANDARD2_0
+internal class WorkerHandle : IDisposable
+#else
+internal class WorkerHandle : IDisposable, IAsyncDisposable
+#endif
 {
     #region Fields
     /// <summary>The OS process running the worker.</summary>
@@ -62,8 +66,8 @@ internal sealed class WorkerHandle
     /// <summary>The timestamp when the worker last became idle.</summary>
     private DateTime _idleSince;
 
-    /// <summary>Indicates whether the worker has been forcefully killed.</summary>
-    private bool _killed;
+    /// <summary>Indicates whether the worker has been disposed.</summary>
+    private bool _disposed;
 
     /// <summary>Logger for this worker handle.</summary>
     private readonly ILogger _logger;
@@ -83,7 +87,7 @@ internal sealed class WorkerHandle
     /// <summary>
     ///     Gets a value indicating whether the worker process is still alive.
     /// </summary>
-    public bool IsAlive => !_killed && !_process.HasExited;
+    public bool IsAlive => !_disposed && !_process.HasExited;
 
     /// <summary>
     ///     Gets the duration the worker has been idle. Returns <see cref="TimeSpan.Zero" /> if busy.
@@ -91,7 +95,7 @@ internal sealed class WorkerHandle
     public TimeSpan IdleDuration => _isBusy ? TimeSpan.Zero : DateTime.UtcNow - _idleSince;
     #endregion
 
-    #region WorkerHandle
+    #region Constructor
     /// <summary>
     ///     Initializes a new instance of <see cref="WorkerHandle" /> for the given worker process and pipe.
     /// </summary>
@@ -142,6 +146,9 @@ internal sealed class WorkerHandle
     /// <returns>The typed response from the worker.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the response type is unexpected or an error occurs.</exception>
     /// <exception cref="System.TimeoutException">Thrown when the worker does not respond in time.</exception>
+    /// <remarks>
+    ///     Default timeout is 5 minutes
+    /// </remarks>
     public async Task<T> SendRequestAsync<T>(WorkerRequest request, TimeSpan? timeout = null) where T : WorkerResponse
     {
         timeout ??= TimeSpan.FromMinutes(5);
@@ -178,6 +185,8 @@ internal sealed class WorkerHandle
     #region ReadResponseAsync
     /// <summary>
     ///     Reads a single response from the worker with a timeout.
+    ///     Automatically processes and logs any <see cref="LogResponse"/> messages,
+    ///     then continues reading until a non-log response is received.
     /// </summary>
     /// <param name="timeout">Maximum time to wait for a response.</param>
     /// <returns>The deserialized response, or <c>null</c> if the pipe was closed.</returns>
@@ -185,24 +194,59 @@ internal sealed class WorkerHandle
     public async Task<WorkerResponse?> ReadResponseAsync(TimeSpan timeout)
     {
         using var cancellationTokenSource = new CancellationTokenSource(timeout);
-        try
-        {
-#if NETSTANDARD2_0
-            var readTask = _reader.ReadLineAsync();
-            var delayTask = Task.Delay(timeout, cancellationTokenSource.Token);
-            if (await Task.WhenAny(readTask, delayTask).ConfigureAwait(false) == delayTask)
-                throw new TimeoutException("Worker did not respond in time.");
 
-            var line = await readTask.ConfigureAwait(false);
-#else
-            var line = await _reader.ReadLineAsync(cancellationTokenSource.Token).ConfigureAwait(false);
-#endif
-            return line == null ? null : IpcSerializer.Deserialize<WorkerResponse>(line);
-        }
-        catch (OperationCanceledException)
+        while (true)
         {
-            throw new TimeoutException("Worker did not respond in time.");
+            try
+            {
+                var readTask = _reader.ReadLineAsync();
+                var delayTask = Task.Delay(timeout, cancellationTokenSource.Token);
+                if (await Task.WhenAny(readTask, delayTask).ConfigureAwait(false) == delayTask)
+                    throw new TimeoutException("Worker did not respond in time.");
+
+                var line = await readTask.ConfigureAwait(false);
+
+                if (line == null)
+                    return null;
+
+                _logger.LogTrace("[Worker '{PipeName}'] Received line: {Line}", PipeName, line);
+
+                WorkerResponse? response;
+                try
+                {
+                    response = IpcSerializer.Deserialize<WorkerResponse>(line);
+                }
+                catch (Exception exception)
+                {
+                    _logger.LogWarning(exception, "[Worker '{PipeName}'] Failed to deserialize response: {Line}", PipeName, line);
+                    continue;
+                }
+
+                // If it's a log message, process it and continue reading
+                if (response is not LogResponse logResponse) return response;
+                ProcessLogResponse(logResponse);
+
+                // Otherwise return the response
+            }
+            catch (OperationCanceledException)
+            {
+                throw new TimeoutException("Worker did not respond in time.");
+            }
         }
+    }
+    #endregion
+
+    #region ProcessLogResponse
+    /// <summary>
+    ///     Processes a log response from the worker and logs it with the appropriate level.
+    /// </summary>
+    /// <param name="logResponse">The log response to process.</param>
+    private void ProcessLogResponse(LogResponse logResponse)
+    {
+        if (string.IsNullOrEmpty(logResponse.Exception))
+            _logger.Log(logResponse.LogLevel, "[Worker '{PipeName}'] {Message}", PipeName, logResponse.Message);
+        else
+            _logger.Log(logResponse.LogLevel, "[Worker '{PipeName}'] {Message}\n{Exception}", PipeName, logResponse.Message, logResponse.Exception);
     }
     #endregion
 
@@ -245,6 +289,7 @@ internal sealed class WorkerHandle
         {
             var json = IpcSerializer.Serialize<WorkerRequest>(new ShutdownRequest());
             await _writer.WriteLineAsync(json).ConfigureAwait(false);
+            await _writer.FlushAsync().ConfigureAwait(false);
         }
         catch
         {
@@ -253,77 +298,162 @@ internal sealed class WorkerHandle
     }
     #endregion
 
-    #region Kill
+    #region Dispose
     /// <summary>
-    ///     Forcefully kills the worker process and releases all associated resources.
+    ///     Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+    ///     Attempts a graceful shutdown first, then forcefully terminates the worker if needed.
     /// </summary>
-    public void Kill()
+    public void Dispose()
     {
-        if (_killed) return;
-        _killed = true;
+        Dispose(true);
+        GC.SuppressFinalize(this);
+    }
 
-        _logger.LogDebug("Killing worker '{PipeName}'", PipeName);
+    /// <summary>
+    ///     Releases the unmanaged resources used by the <see cref="WorkerHandle"/> and optionally releases the managed resources.
+    /// </summary>
+    /// <param name="disposing">true to release both managed and unmanaged resources; false to release only unmanaged resources.</param>
+    protected virtual void Dispose(bool disposing)
+    {
+        if (_disposed) return;
+        _disposed = true;
 
-        try
+        if (disposing)
         {
-            _reader.Dispose();
-        }
-        catch
-        {
-            // ignored
-        }
+            _logger.LogDebug("Disposing worker '{PipeName}'", PipeName);
 
-        try
-        {
-            _writer.Dispose();
-        }
-        catch
-        {
-            // ignored
-        }
+            // Try graceful shutdown first
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    var shutdownTask = SendShutdownAsync();
+                    if (!shutdownTask.Wait(TimeSpan.FromSeconds(2)))
+                    {
+                        _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 2 seconds", PipeName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error sending shutdown to worker '{PipeName}'", PipeName);
+            }
 
-        try
-        {
-            _pipe.Dispose();
-        }
-        catch
-        {
-            // ignored
-        }
-
-        try
-        {
+            // Dispose managed resources
             _sendLock.Dispose();
-        }
-        catch
-        {
-            // ignored
-        }
+            _reader.Dispose();
+            _writer.Dispose();
+            _pipe.Dispose();
 
+            // Forcefully kill if still running
+            try
+            {
+                if (!_process.HasExited)
+                {
+                    _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
+#if NETSTANDARD2_0
+                    _process.Kill();
+#else
+                    _process.Kill(true);
+#endif
+                    if (!_process.WaitForExit(1000))
+                    {
+                        _logger.LogWarning("Worker '{PipeName}' did not exit within 1 second after kill", PipeName);
+                    }
+                }
+            }
+            catch (Exception ex)
+            {
+                _logger.LogDebug(ex, "Error killing worker '{PipeName}'", PipeName);
+            }
+
+            _process.Dispose();
+        }
+    }
+    #endregion
+
+#if !NETSTANDARD2_0
+    #region DisposeAsync
+    /// <summary>
+    ///     Asynchronously releases the unmanaged resources used by the <see cref="WorkerHandle"/>.
+    /// </summary>
+    public async ValueTask DisposeAsync()
+    {
+        if (_disposed) return;
+        _disposed = true;
+
+        _logger.LogDebug("Disposing worker '{PipeName}' asynchronously", PipeName);
+
+        // Try graceful shutdown first
         try
         {
             if (!_process.HasExited)
             {
-#if NETSTANDARD2_0
-                _process.Kill();
-#else
-                _process.Kill(true);
-#endif
+                await SendShutdownAsync().ConfigureAwait(false);
+
+                // Give the worker a chance to shut down gracefully
+                var shutdownDelay = Task.Delay(2000);
+                var exitTask = Task.Run(() =>
+                {
+                    try
+                    {
+                        _process.WaitForExit(2000);
+                    }
+                    catch { /* ignored */ }
+                });
+
+                await Task.WhenAny(exitTask, shutdownDelay).ConfigureAwait(false);
+
+                if (!_process.HasExited)
+                {
+                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 2 seconds", PipeName);
+                }
             }
         }
-        catch
+        catch (Exception ex)
         {
-            // ignored
+            _logger.LogDebug(ex, "Error sending shutdown to worker '{PipeName}'", PipeName);
         }
 
+        // Dispose managed resources
+        _sendLock?.Dispose();
+
+        await _writer.DisposeAsync().ConfigureAwait(false);
+        _reader?.Dispose();
+        await _pipe.DisposeAsync().ConfigureAwait(false);
+
+        // Forcefully kill if still running
         try
         {
-            _process.Dispose();
+            if (!_process.HasExited)
+            {
+                _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
+                _process.Kill(true);
+
+                await Task.Run(() =>
+                {
+                    try
+                    {
+                        _process.WaitForExit(1000);
+                    }
+                    catch { /* ignored */ }
+                }).ConfigureAwait(false);
+
+                if (!_process.HasExited)
+                {
+                    _logger.LogWarning("Worker '{PipeName}' did not exit within 1 second after kill", PipeName);
+                }
+            }
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogDebug(exception, "Error killing worker '{PipeName}'", PipeName);
         }
+
+        _process.Dispose();
+
+        GC.SuppressFinalize(this);
     }
     #endregion
+#endif
 }

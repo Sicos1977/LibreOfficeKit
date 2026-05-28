@@ -26,8 +26,9 @@
 
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
-using Microsoft.Extensions.Logging.Abstractions;
 using System.IO.Pipes;
+using LibreOfficeKit.Enums;
+
 // ReSharper disable UnusedMember.Global
 
 namespace LibreOfficeKit;
@@ -44,23 +45,17 @@ public static class WorkerProcess
     ///     LibreOfficeKit, and enters the request-response loop.
     /// </summary>
     /// <param name="pipeName">The named pipe to connect to (created by <see cref="Converter" />).</param>
-    /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
-    public static async Task<int> RunAsync(string pipeName, ILogger? logger = null)
+    public static async Task<int> RunAsync(string pipeName)
     {
-        logger ??= NullLogger.Instance;
-
         using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         try
         {
-            logger.LogDebug("Connecting to pipe '{PipeName}'", pipeName);
             await pipeClient.ConnectAsync(5000).ConfigureAwait(false);
-            logger.LogDebug("Connected to pipe '{PipeName}'", pipeName);
         }
         catch (TimeoutException)
         {
-            logger.LogError("Timeout connecting to pipe '{PipeName}'", pipeName);
             return 1;
         }
 
@@ -68,12 +63,8 @@ public static class WorkerProcess
         using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true);
         writer.AutoFlush = true;
 
-        var startupDelayText = Environment.GetEnvironmentVariable("LOK_WORKER_STARTUP_DELAY_MS");
-        if (int.TryParse(startupDelayText, out var startupDelayMs) && startupDelayMs > 0)
-        {
-            logger.LogWarning("Delaying worker startup by {DelayMs} ms", startupDelayMs);
-            await Task.Delay(startupDelayMs).ConfigureAwait(false);
-        }
+        // Now that we have the pipe connected, create the logger
+        ILogger logger = new PipeLogger("WorkerProcess", writer);
 
         Instance? office;
 
@@ -140,12 +131,18 @@ public static class WorkerProcess
                         logger.LogInformation("Received shutdown request. Exiting.");
                         await SendAsync(writer, new PongResponse()).ConfigureAwait(false);
                         return 0;
+
+                    default:
+                        logger.LogWarning("Received unknown request type: {RequestType}", request.GetType().Name);
+                        break;
                 }
             }
         }
         finally
         {
             office.Dispose();
+            pipeClient.Flush();
+            pipeClient.WaitForPipeDrain();
         }
     }
     #endregion
@@ -160,6 +157,8 @@ public static class WorkerProcess
     /// <param name="logger">The logger for logging messages.</param>
     private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer, ILogger logger)
     {
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
         try
         {
             logger.LogDebug("Loading document '{InputFile}'", request.InputFile);
@@ -167,34 +166,37 @@ public static class WorkerProcess
             var outputUrl = Instance.PathToFileUrl(request.OutputFile);
 
             using var document = office.DocumentLoad(inputUrl);
-            logger.LogDebug("Saving document as PDF to '{OutputFile}'", request.OutputFile);
-            var success = document.SaveAs(outputUrl, "pdf", request.FilterOptions);
+            logger.LogDebug("Document loaded in {ElapsedMs} ms, saving as PDF to '{OutputFile}'", stopwatch.ElapsedMilliseconds, request.OutputFile);
+
+            var saveStart = stopwatch.ElapsedMilliseconds;
+            var success = document.SaveAs(outputUrl, SaveFormat.Pdf, request.FilterOptions);
+            logger.LogDebug("SaveAs completed in {SaveMs} ms (total: {TotalMs} ms)", stopwatch.ElapsedMilliseconds - saveStart, stopwatch.ElapsedMilliseconds);
 
             if (success)
             {
-                logger.LogInformation("Conversion succeeded: '{OutputFile}'", request.OutputFile);
+                logger.LogInformation("Conversion succeeded: '{OutputFile}' (total time: {TotalMs} ms)", request.OutputFile, stopwatch.ElapsedMilliseconds);
                 await SendAsync(writer, new ConvertResponse(true)).ConfigureAwait(false);
             }
             else
             {
                 var error = office.GetError();
-                logger.LogError("Conversion failed for '{InputFile}': '{Error}'", request.InputFile, error ?? "SaveAs returned failure.");
+                logger.LogError("Conversion failed for '{InputFile}': '{Error}' (total time: {TotalMs} ms)", request.InputFile, error ?? "SaveAs returned failure.", stopwatch.ElapsedMilliseconds);
                 await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure.")).ConfigureAwait(false);
             }
         }
-        catch (LibreOfficeKit.Exceptions.FilePasswordProtectedException exception)
+        catch (Exceptions.FilePasswordProtectedException exception)
         {
-            logger.LogError(exception, "Document is password-protected: '{InputFile}'", request.InputFile);
-            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(LibreOfficeKit.Exceptions.FilePasswordProtectedException))).ConfigureAwait(false);
+            logger.LogError(exception, "Document is password-protected: '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
+            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FilePasswordProtectedException))).ConfigureAwait(false);
         }
-        catch (LibreOfficeKit.Exceptions.FileTypeNotSupportedException exception)
+        catch (Exceptions.FileTypeNotSupportedException exception)
         {
-            logger.LogError(exception, "File type not supported for '{InputFile}'", request.InputFile);
-            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(LibreOfficeKit.Exceptions.FileTypeNotSupportedException))).ConfigureAwait(false);
+            logger.LogError(exception, "File type not supported for '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
+            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FileTypeNotSupportedException))).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Exception during conversion of '{InputFile}'", request.InputFile);
+            logger.LogError(exception, "Exception during conversion of '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
             await SendAsync(writer, new ConvertResponse(false, exception.Message)).ConfigureAwait(false);
         }
     }

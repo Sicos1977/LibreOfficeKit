@@ -78,7 +78,6 @@ public sealed class Document : IDisposable
             throw new InvalidOperationException("saveAs function not available in this LibreOffice version.");
 
         var saveAs = Marshal.GetDelegateForFunctionPointer<LokDocSaveAsFunction>(_docClass.saveAs);
-
         var pUrl = Marshal.StringToHGlobalAnsi(outputUrl);
         var pFormat = Marshal.StringToHGlobalAnsi(format);
         var pFilter = filterOptions != null ? Marshal.StringToHGlobalAnsi(filterOptions) : IntPtr.Zero;
@@ -105,7 +104,7 @@ public sealed class Document : IDisposable
     /// <returns><c>true</c> if the save operation succeeded; otherwise <c>false</c>.</returns>
     public bool SaveAs(string outputUrl, SaveFormat format, string? filterOptions = null)
     {
-        return SaveAs(outputUrl, format.ToFormatString(), filterOptions);
+        return SaveAs(outputUrl, format.ToFormatString().ToLowerInvariant(), filterOptions);
     }
 
     /// <summary>

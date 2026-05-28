@@ -35,4 +35,5 @@ namespace LibreOfficeKit.Protocols;
 [JsonDerivedType(typeof(PongResponse), "pong")]
 [JsonDerivedType(typeof(ReadyResponse), "ready")]
 [JsonDerivedType(typeof(ErrorResponse), "error")]
+[JsonDerivedType(typeof(LogResponse), "log")]
 internal abstract class WorkerResponse;

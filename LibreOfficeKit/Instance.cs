@@ -33,6 +33,7 @@
 
 using LibreOfficeKit.Bindings;
 using System.Runtime.InteropServices;
+// ReSharper disable NotAccessedField.Local
 
 #if !NETSTANDARD2_0
 using NativeLibrary = System.Runtime.InteropServices.NativeLibrary;
@@ -127,61 +128,92 @@ public sealed class Instance : IDisposable
     /// <exception cref="DirectoryNotFoundException">Thrown when the install path does not exist.</exception>
     public static Instance Create(string installPath)
     {
-        lock (GlobalLock)
+        if (_instanceActive)
+            throw new InvalidOperationException(
+                "Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
+
+        installPath = Path.GetFullPath(installPath);
+        if (!Directory.Exists(installPath))
+            throw new DirectoryNotFoundException($"LibreOffice install path not found: {installPath}");
+
+        var libraryHandle = LoadLokLibrary(installPath);
+
+        IntPtr pOffice;
+        var pInstallPath = IntPtr.Zero;
+        var pUserProfile = IntPtr.Zero;
+
+        try
         {
-            if (_instanceActive)
-                throw new InvalidOperationException(
-                    "Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
-
-            installPath = Path.GetFullPath(installPath);
-
-            if (!Directory.Exists(installPath))
-                throw new DirectoryNotFoundException($"LibreOffice install path not found: {installPath}");
-
-            if (RuntimeInformation.IsOSPlatform(OSPlatform.Windows))
+            if (NativeLibrary.TryGetExport(libraryHandle, "libreofficekit_hook_2", out var hook2Ptr))
             {
-                var currentPath = Environment.GetEnvironmentVariable("PATH") ?? string.Empty;
-                if (currentPath.IndexOf(installPath, StringComparison.OrdinalIgnoreCase) < 0)
-                    Environment.SetEnvironmentVariable("PATH", $"{installPath};{currentPath}");
+                var hook2 = Marshal.GetDelegateForFunctionPointer<LokHook2Function>(hook2Ptr);
+                var tempProfile = Path.Combine(Path.GetTempPath(), $"lok_profile_{Guid.NewGuid():N}");
+                Directory.CreateDirectory(tempProfile);
+
+                var registryPath = Path.Combine(tempProfile, "user", "registrymodifications.xcu");
+                Directory.CreateDirectory(Path.GetDirectoryName(registryPath)!);
+                File.WriteAllText(registryPath, """
+                                                <?xml version="1.0" encoding="UTF-8"?>
+                                                <oor:items xmlns:oor="http://openoffice.org" xmlns:xs="http://w3.org" xmlns:xsi="http://w3.org-instance">
+                                                
+                                                    <!-- Disable all GUI dialogs and first-run wizards -->
+                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="UseSystemFileDialog" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="FirstRun" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="ShowTipOfTheDay" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Setup/Office"><prop oor:name="ooSetupShowIntro" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Block all macro execution -->
+                                                    <item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="MacroSecurityLevel" oor:op="fuse"><value>3</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="RemovePersonalInfoOnSaving" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.BasicIDE/EditorSettings"><prop oor:name="MacroRecorderMode" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Disable crash reporting and update checks -->
+                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="CrashReport" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="IsDeceptiveContentWarning" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Disable auto-save and crash recovery (not needed in headless/LOK) -->
+                                                    <item oor:path="/org.openoffice.Office.Common/Save/Document"><prop oor:name="AutoSave" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Recovery/AutoSave"><prop oor:name="Enabled" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Fix locale to prevent font and date formatting inconsistencies across machines -->
+                                                    <item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooSetupSystemLocale" oor:op="fuse"><value>en-US</value></prop></item>
+                                                
+                                                </oor:items>
+                                                """);
+
+                var profileUrl = $"file:///{tempProfile.Replace('\\', '/')}";
+                pInstallPath = Marshal.StringToHGlobalAnsi(installPath);
+                pUserProfile = Marshal.StringToHGlobalAnsi(profileUrl);
+                pOffice = hook2(pInstallPath, pUserProfile);
             }
-
-            var libraryHandle = LoadLokLibrary(installPath);
-
-            if (!NativeLibrary.TryGetExport(libraryHandle, "libreofficekit_hook", out var hookPtr))
+            else
             {
                 NativeLibrary.Free(libraryHandle);
-                throw new InvalidOperationException("Could not find 'libreofficekit_hook' export in LibreOffice library.");
+                throw new InvalidOperationException("Could not find 'libreofficekit_hook_2' export in LibreOffice library.");
             }
-
-            var hook = Marshal.GetDelegateForFunctionPointer<LokHookFunction>(hookPtr);
-
-            var pInstallPath = Marshal.StringToHGlobalAnsi(installPath);
-            IntPtr pOffice;
-            try
-            {
-                pOffice = hook(pInstallPath);
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(pInstallPath);
-            }
-
-            if (pOffice == IntPtr.Zero)
-            {
-                NativeLibrary.Free(libraryHandle);
-                throw new InvalidOperationException("libreofficekit_hook returned null. LibreOffice initialization failed.");
-            }
-
-            _instanceActive = true;
-
-            var instance = new Instance(pOffice, libraryHandle);
-
-            var initError = instance.GetError();
-            if (initError == null) return instance;
-            instance.Dispose();
-            throw new InvalidOperationException($"LibreOffice initialization error: {initError}");
-
         }
+        finally
+        {
+            if (pInstallPath != IntPtr.Zero)
+                Marshal.FreeHGlobal(pInstallPath);
+            if (pUserProfile != IntPtr.Zero)
+                Marshal.FreeHGlobal(pUserProfile);
+        }
+
+        if (pOffice == IntPtr.Zero)
+        {
+            NativeLibrary.Free(libraryHandle);
+            throw new InvalidOperationException(
+                "libreofficekit_hook returned null. LibreOffice initialization failed.");
+        }
+
+        _instanceActive = true;
+        var instance = new Instance(pOffice, libraryHandle);
+        var initError = instance.GetError();
+        if (initError == null) return instance;
+
+        instance.Dispose();
+        throw new InvalidOperationException($"LibreOffice initialization error: {initError}");
     }
     #endregion
 
@@ -333,7 +365,6 @@ public sealed class Instance : IDisposable
         var options = filterName != null ? $"FilterName={filterName}" : null;
 
         IntPtr pDoc;
-
         if (_officeClass.documentLoadWithOptions != IntPtr.Zero && options != null)
         {
             var loadWithOptions = Marshal.GetDelegateForFunctionPointer<LokDocumentLoadWithOptionsFunction>(_officeClass.documentLoadWithOptions);
@@ -368,29 +399,30 @@ public sealed class Instance : IDisposable
         }
 
         var error = GetError();
-        if (error != null)
+        if (error == null)
+            return pDoc == IntPtr.Zero
+                ? throw new InvalidOperationException("documentLoad returned null pointer.")
+                : new Document(pDoc);
+
+        // Check if the error indicates a password-protected document
+        if (error.Contains("password", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("encrypted", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("protected", StringComparison.OrdinalIgnoreCase))
         {
-            // Check if the error indicates a password-protected document
-            if (error.Contains("password", StringComparison.OrdinalIgnoreCase) ||
-                error.Contains("encrypted", StringComparison.OrdinalIgnoreCase) ||
-                error.Contains("protected", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new LibreOfficeKit.Exceptions.FilePasswordProtectedException($"Document is password-protected: '{error}'");
-            }
-
-            // Check if the error indicates an unsupported file type
-            if (error.Contains("format", StringComparison.OrdinalIgnoreCase) ||
-                error.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
-                error.Contains("unknown", StringComparison.OrdinalIgnoreCase) ||
-                error.Contains("filter", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new LibreOfficeKit.Exceptions.FileTypeNotSupportedException($"Failed to load document: '{error}'");
-            }
-
-            throw new InvalidOperationException($"Failed to load document: '{error}'");
+            throw new Exceptions.FilePasswordProtectedException($"Document is password-protected: '{error}'");
         }
 
-        return pDoc == IntPtr.Zero ? throw new InvalidOperationException("documentLoad returned null pointer.") : new Document(pDoc);
+        // Check if the error indicates an unsupported file type
+        if (error.Contains("format", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("not supported", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("unknown", StringComparison.OrdinalIgnoreCase) ||
+            error.Contains("filter", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new Exceptions.FileTypeNotSupportedException($"Failed to load document: '{error}'");
+        }
+
+        throw new InvalidOperationException($"Failed to load document: '{error}'");
+
     }
     #endregion
 

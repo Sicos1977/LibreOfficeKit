@@ -1,5 +1,5 @@
 //
-// IpcSerializer.cs
+// LogResponse.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -24,51 +24,32 @@
 // THE SOFTWARE.
 //
 
-using System.Text.Json;
-using System.Text.Json.Serialization;
+using Microsoft.Extensions.Logging;
 
 namespace LibreOfficeKit.Protocols;
 
 /// <summary>
-///     Helper for serializing and deserializing IPC messages as JSON lines.
+///     Sent by the worker to transmit log messages to the host process.
 /// </summary>
-internal static class IpcSerializer
+/// <param name="logLevel">The log level of the message.</param>
+/// <param name="message">The log message.</param>
+/// <param name="exception">Optional exception details.</param>
+internal sealed class LogResponse(LogLevel logLevel, string message, string? exception = null) : WorkerResponse
 {
-    #region Fields
+    #region Properties
     /// <summary>
-    ///     Shared JSON serializer options for IPC messages.
+    ///     The log level of the message.
     /// </summary>
-    private static readonly JsonSerializerOptions Options = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        WriteIndented = false,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) }
-    };
-    #endregion
+    public LogLevel LogLevel { get; } = logLevel;
 
-    #region Serialize
     /// <summary>
-    ///     Serializes an IPC message to a JSON string.
+    ///     The log message.
     /// </summary>
-    /// <typeparam name="T">The message type.</typeparam>
-    /// <param name="message">The message to serialize.</param>
-    /// <returns>A JSON string representation of the message.</returns>
-    public static string Serialize<T>(T message)
-    {
-        return JsonSerializer.Serialize(message, Options);
-    }
-    #endregion
+    public string Message { get; } = message;
 
-    #region Deserialize
     /// <summary>
-    ///     Deserializes a JSON string to an IPC message.
+    ///     Optional exception details.
     /// </summary>
-    /// <typeparam name="T">The expected message type.</typeparam>
-    /// <param name="json">The JSON string to deserialize.</param>
-    /// <returns>The deserialized message, or <c>null</c> if deserialization fails.</returns>
-    public static T? Deserialize<T>(string json)
-    {
-        return JsonSerializer.Deserialize<T>(json, Options);
-    }
+    public string? Exception { get; } = exception;
     #endregion
 }

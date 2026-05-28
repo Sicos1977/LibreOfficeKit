@@ -35,6 +35,18 @@ namespace LibreOfficeKit.Bindings;
 internal delegate IntPtr LokHookFunction(IntPtr installPath);
 
 /// <summary>
+///     Delegate for the <c>libreofficekit_hook_2</c> entry point with user profile support.
+/// </summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate IntPtr LokHook2Function(IntPtr installPath, IntPtr userProfileUrl);
+
+/// <summary>
+///     Delegate for the <c>libreofficekit_preinit</c> entry point for pre-initialization.
+/// </summary>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void LokPreinitFunction(IntPtr installPath, IntPtr userProfileUrl);
+
+/// <summary>
 ///     Delegate for <c>LibreOfficeKitClass.destroy</c>.
 /// </summary>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
