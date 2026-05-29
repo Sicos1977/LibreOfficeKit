@@ -27,6 +27,7 @@
 using System.Runtime.InteropServices;
 using LibreOfficeKit.Bindings;
 using LibreOfficeKit.Enums;
+using Microsoft.Extensions.Logging;
 // ReSharper disable UnusedMember.Global
 
 namespace LibreOfficeKit;
@@ -55,10 +56,16 @@ public sealed class Document : IDisposable
     /// <param name="pDocument">Pointer to the native LibreOfficeKitDocument.</param>
     internal Document(IntPtr pDocument)
     {
+        Instance.Logger?.LogDebug("Document constructor called with pointer: {Pointer:X}", (long)pDocument);
         _pDocument = pDocument;
 
+        Instance.Logger?.LogDebug("Reading LibreOfficeKitDocument structure...");
         var doc = Marshal.PtrToStructure<LibreOfficeKitDocument>(_pDocument);
+
+        Instance.Logger?.LogDebug("Reading LibreOfficeKitDocumentClass vtable...");
         _docClass = Marshal.PtrToStructure<LibreOfficeKitDocumentClass>(doc.pClass);
+
+        Instance.Logger?.LogDebug("Document object fully initialized");
     }
     #endregion
 
@@ -78,9 +85,9 @@ public sealed class Document : IDisposable
             throw new InvalidOperationException("saveAs function not available in this LibreOffice version.");
 
         var saveAs = Marshal.GetDelegateForFunctionPointer<LokDocSaveAsFunction>(_docClass.saveAs);
-        var pUrl = Marshal.StringToHGlobalAnsi(outputUrl);
-        var pFormat = Marshal.StringToHGlobalAnsi(format);
-        var pFilter = filterOptions != null ? Marshal.StringToHGlobalAnsi(filterOptions) : IntPtr.Zero;
+        var pUrl = Instance.StringToHGlobalUtf8(outputUrl);
+        var pFormat = Instance.StringToHGlobalUtf8(format);
+        var pFilter = filterOptions != null ? Instance.StringToHGlobalUtf8(filterOptions) : IntPtr.Zero;
 
         try
         {

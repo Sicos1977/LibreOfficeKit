@@ -237,6 +237,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task CsvTabSeparated()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "Tab separated csv.pdf");
@@ -255,6 +256,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task PptWith3EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A PPT PowerPoint document with 3 embedded files.pdf");
@@ -356,6 +358,10 @@ public class ConverterTests
         var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).AddFilter(null, LogLevel.Trace));
         var logger = loggerFactory.CreateLogger<Converter>();
         logger.LogInformation("Logger initialized, creating Converter...");
+
+        // Set the logger for LibreOfficeKit callbacks
+        var lokLogger = loggerFactory.CreateLogger("LibreOfficeKit.Callbacks");
+        Instance.SetLogger(lokLogger);
 
         //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0), logger: logger);
         _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe", logger);

@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
+// ReSharper disable UnusedMember.Global
 namespace LibreOfficeKit.Enums;
 
 /// <summary>
@@ -269,8 +270,7 @@ public class PdfOptions
             if (Security.EnableCopyingOfContent.HasValue)
                 parts.Add($"EnableCopyingOfContent={BoolStr(Security.EnableCopyingOfContent.Value)}");
             if (Security.EnableTextAccessForAccessibilityTools.HasValue)
-                parts.Add(
-                    $"EnableTextAccessForAccessibilityTools={BoolStr(Security.EnableTextAccessForAccessibilityTools.Value)}");
+                parts.Add($"EnableTextAccessForAccessibilityTools={BoolStr(Security.EnableTextAccessForAccessibilityTools.Value)}");
         }
         else if (!string.IsNullOrEmpty(EncryptionPassword))
         {

@@ -32,7 +32,12 @@
 // =============================================================================
 
 using LibreOfficeKit.Bindings;
+using LibreOfficeKit.Enums;
+using LibreOfficeKit.Logging;
+using Microsoft.Extensions.Logging;
+using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
+using System.Text;
 // ReSharper disable NotAccessedField.Local
 
 #if !NETSTANDARD2_0
@@ -85,6 +90,16 @@ public sealed class Instance : IDisposable
     private bool _disposed;
 
     /// <summary>
+    ///     Optional logger for callback events.
+    /// </summary>
+    private static ILogger? _logger;
+
+    /// <summary>
+    ///     Gets the current logger instance.
+    /// </summary>
+    internal static ILogger? Logger => _logger;
+
+    /// <summary>
     ///     Library names to search for on Windows.
     /// </summary>
     private static readonly string[] WindowsLibs = ["sofficeapp.dll", "mergedlo.dll"];
@@ -116,6 +131,166 @@ public sealed class Instance : IDisposable
     }
     #endregion
 
+    #region StringToHGlobalUtf8
+    /// <summary>
+    ///     Converts a C# string to a UTF-8 encoded string in unmanaged memory, null-terminated.
+    /// </summary>
+    /// <param name="str">The string to convert.</param>
+    /// <returns>A pointer to the UTF-8 encoded string in unmanaged memory.</returns>
+    internal static IntPtr StringToHGlobalUtf8(string str)
+    {
+        var bytes = Encoding.UTF8.GetBytes($"{str}\0");
+        var ptr = Marshal.AllocHGlobal(bytes.Length);
+        Marshal.Copy(bytes, 0, ptr, bytes.Length);
+        return ptr;
+    }
+    #endregion
+
+    #region Callback Implementation
+#if NET5_0_OR_GREATER
+    /// <summary>
+    ///     Unmanaged callback method for LibreOfficeKit events (.NET 5+).
+    ///     This method is called from native code and must be marked with [UnmanagedCallersOnly].
+    /// </summary>
+    /// <param name="type">The callback event type (see <see cref="CallbackType"/>).</param>
+    /// <param name="pPayload">Pointer to a UTF-8 encoded payload string.</param>
+    /// <param name="pData">User data pointer (currently unused).</param>
+    [UnmanagedCallersOnly(CallConvs = [typeof(CallConvCdecl)])]
+    private static unsafe void OnLibreOfficeEventUnmanaged(int type, byte* pPayload, IntPtr pData)
+    {
+        try
+        {
+            // Convert the UTF-8 payload to a managed string
+            var payload = pPayload != null ? Marshal.PtrToStringUTF8((IntPtr)pPayload) ?? string.Empty : string.Empty;
+
+            HandleLibreOfficeEvent(type, payload);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "[LOK Callback Error] Unmanaged callback exception");
+        }
+    }
+#else
+    /// <summary>
+    ///     Managed callback delegate for LibreOfficeKit events (.NET Standard 2.0).
+    /// </summary>
+    private static readonly LokCallback2Function CallbackDelegate = OnLibreOfficeEventManaged;
+
+    /// <summary>
+    ///     Managed callback method for LibreOfficeKit events (.NET Standard 2.0).
+    /// </summary>
+    private static void OnLibreOfficeEventManaged(int type, string payload, IntPtr pData)
+    {
+        try
+        {
+            HandleLibreOfficeEvent(type, payload ?? string.Empty);
+        }
+        catch (Exception exception)
+        {
+            _logger?.LogError(exception, "[LOK Callback Error] Managed callback exception");
+        }
+    }
+#endif
+
+    /// <summary>
+    ///     Handles a LibreOfficeKit callback event.
+    /// </summary>
+    /// <param name="type">The callback event type.</param>
+    /// <param name="payload">The event payload.</param>
+    private static void HandleLibreOfficeEvent(int type, string payload)
+    {
+        var callbackType = (CallbackType)type;
+
+        // Log the event
+       // _logger?.LogDebug("[LOK Event] Type: '{Type}' ({TypeId}) | Payload: '{Payload}'", callbackType, type, payload);
+
+        switch (callbackType)
+        {
+            case CallbackType.Error:
+                _logger?.LogError("[LOK Error] '{Payload}'", payload);
+                break;
+
+            case CallbackType.StatusIndicatorStart:
+                _logger?.LogInformation("[LOK Status] Operation started: '{Payload}'", payload);
+                break;
+
+            case CallbackType.StatusIndicatorSetValue:
+                _logger?.LogDebug("[LOK Progress] '{Payload}'", payload);
+                break;
+
+            case CallbackType.StatusIndicatorFinish:
+                _logger?.LogInformation("[LOK Status] Operation finished");
+                break;
+
+            case CallbackType.DocumentPassword:
+            case CallbackType.DocumentPasswordToModify:
+                _logger?.LogWarning("[LOK Password] Document requires password: '{Payload}'", payload);
+                break;
+
+            case CallbackType.DocumentSizeChanged:
+                _logger?.LogInformation("[LOK Document] Size changed: '{Payload}'", payload);
+                break;
+
+            case CallbackType.InvalidateTiles:
+                _logger?.LogDebug("[LOK Render] Tile invalidation: '{Payload}'", payload);
+                break;
+
+            case CallbackType.Window:
+                _logger?.LogInformation("[LOK Window] Window event: '{Payload}'", payload);
+                break;
+
+            case CallbackType.Jsdialog:
+                _logger?.LogWarning("[LOK Dialog] JavaScript dialog detected: '{Payload}'", payload);
+                break;
+
+            case CallbackType.UnoCommandResult:
+                _logger?.LogDebug("[LOK UNO] Command result: '{Payload}'", payload);
+                break;
+
+            case CallbackType.StateChanged:
+                _logger?.LogDebug("[LOK State] State changed: '{Payload}'", payload);
+                break;
+
+            case CallbackType.ContextMenu:
+                _logger?.LogDebug("[LOK Menu] Context menu: '{Payload}'", payload);
+                break;
+
+            case CallbackType.FontsMissing:
+                _logger?.LogWarning("[LOK Fonts] Missing fonts: '{Payload}'", payload);
+                break;
+
+            case CallbackType.ProfileFrame:
+                _logger?.LogDebug("[LOK Profile] Frame timing: '{Payload}'", payload);
+                break;
+
+            default:
+                // Log all other events at trace level to catch unexpected behavior
+                _logger?.LogTrace("[LOK Event] Unhandled type '{Type}': '{Payload}'", callbackType, payload);
+                break;
+        }
+    }
+    #endregion
+
+    #region SetLogger
+    /// <summary>
+    ///     Sets the logger for LibreOfficeKit callback events.
+    /// </summary>
+    /// <param name="logger">The logger to use for callback events.</param>
+    public static void SetLogger(ILogger? logger)
+    {
+        _logger = logger;
+    }
+
+    /// <summary>
+    ///     Enables console logging for direct mode.
+    /// </summary>
+    /// <param name="minLevel">The minimum log level to output. Defaults to Information.</param>
+    public static void EnableConsoleLogging(LogLevel minLevel = LogLevel.Information)
+    {
+        _logger = new ConsoleLogger("LibreOfficeKit", minLevel);
+    }
+    #endregion
+
     #region Create
     /// <summary>
     ///     Creates a new LibreOffice instance from the specified install path.
@@ -129,8 +304,7 @@ public sealed class Instance : IDisposable
     public static Instance Create(string installPath)
     {
         if (_instanceActive)
-            throw new InvalidOperationException(
-                "Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
+            throw new InvalidOperationException("Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
 
         installPath = Path.GetFullPath(installPath);
         if (!Directory.Exists(installPath))
@@ -167,10 +341,6 @@ public sealed class Instance : IDisposable
                                                     <item oor:path="/org.openoffice.Office.Common/Security/Scripting"><prop oor:name="RemovePersonalInfoOnSaving" oor:op="fuse"><value>false</value></prop></item>
                                                     <item oor:path="/org.openoffice.Office.BasicIDE/EditorSettings"><prop oor:name="MacroRecorderMode" oor:op="fuse"><value>false</value></prop></item>
                                                 
-                                                    <!-- Disable crash reporting and update checks -->
-                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="CrashReport" oor:op="fuse"><value>false</value></prop></item>
-                                                    <item oor:path="/org.openoffice.Office.Common/Misc"><prop oor:name="IsDeceptiveContentWarning" oor:op="fuse"><value>false</value></prop></item>
-                                                
                                                     <!-- Disable auto-save and crash recovery (not needed in headless/LOK) -->
                                                     <item oor:path="/org.openoffice.Office.Common/Save/Document"><prop oor:name="AutoSave" oor:op="fuse"><value>false</value></prop></item>
                                                     <item oor:path="/org.openoffice.Office.Recovery/AutoSave"><prop oor:name="Enabled" oor:op="fuse"><value>false</value></prop></item>
@@ -178,13 +348,56 @@ public sealed class Instance : IDisposable
                                                     <!-- Fix locale to prevent font and date formatting inconsistencies across machines -->
                                                     <item oor:path="/org.openoffice.Setup/L10N"><prop oor:name="ooSetupSystemLocale" oor:op="fuse"><value>en-US</value></prop></item>
                                                 
+                                                    <!-- Disable printer setup entirely (fixes the Calc hang) -->
+                                                    <item oor:path="/org.openoffice.Office.Common/Print/Option"><prop oor:name="PrinterSetupOption" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Disable hardware acceleration (causes hangs in Calc/Impress on headless Windows) -->
+                                                    <item oor:path="/org.openoffice.Office.Common/VCL"><prop oor:name="UseOpenGL" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Common/VCL"><prop oor:name="ForceOpenGL" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Calc/Calculate"><prop oor:name="UseOpenCL" oor:op="fuse"><value>false</value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Calc/Calculate"><prop oor:name="AutoCalculate" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Disable font replacement/checking -->
+                                                    <item oor:path="/org.openoffice.Office.Common/Font/Substitution"><prop oor:name="Replacement" oor:op="fuse"><value>false</value></prop></item>
+                                                
+                                                    <!-- Disable spell checking and dictionary loading (prevents threading hang during filter init) -->
+                                                    <item oor:path="/org.openoffice.Office.Linguistic/General"><prop oor:name="ActiveDictionaryList" oor:op="fuse"><value></value></prop></item>
+                                                    <item oor:path="/org.openoffice.Office.Linguistic/SpellChecking"><prop oor:name="IsSpellAuto" oor:op="fuse"><value>false</value></prop></item>
+                                                
                                                 </oor:items>
                                                 """);
 
                 var profileUrl = $"file:///{tempProfile.Replace('\\', '/')}";
-                pInstallPath = Marshal.StringToHGlobalAnsi(installPath);
-                pUserProfile = Marshal.StringToHGlobalAnsi(profileUrl);
+                pInstallPath = StringToHGlobalUtf8(installPath);
+                pUserProfile = StringToHGlobalUtf8(profileUrl);
                 pOffice = hook2(pInstallPath, pUserProfile);
+
+                var officeStruct = Marshal.PtrToStructure<LibreOfficeKitStruct>(pOffice);
+                var vtable = Marshal.PtrToStructure<LibreOfficeKitClass>(officeStruct.pClass);
+
+                // Register callback
+                if (vtable.registerCallback != IntPtr.Zero)
+                {
+#if NET5_0_OR_GREATER
+                    unsafe
+                    {
+                        var registerCallback = (delegate* unmanaged[Cdecl]<IntPtr, delegate* unmanaged[Cdecl]<int, byte*, IntPtr, void>, IntPtr, void>)vtable.registerCallback;
+
+                        // Register the unmanaged callback using a function pointer
+                        registerCallback(pOffice, &OnLibreOfficeEventUnmanaged, IntPtr.Zero);
+
+                        _logger?.LogDebug("LibreOffice callback successfully registered via vtable (unmanaged)");
+                    }
+#else
+                    // For .NET Standard 2.0, use the managed delegate approach
+                    var registerCallback = Marshal.GetDelegateForFunctionPointer<LokRegisterCallbackFunction>(vtable.registerCallback);
+                    registerCallback(pOffice, CallbackDelegate, IntPtr.Zero);
+                    _logger?.LogDebug("LibreOffice callback successfully registered via vtable (unmanaged)");
+#endif
+                }
+
+              
+
             }
             else
             {
@@ -203,8 +416,7 @@ public sealed class Instance : IDisposable
         if (pOffice == IntPtr.Zero)
         {
             NativeLibrary.Free(libraryHandle);
-            throw new InvalidOperationException(
-                "libreofficekit_hook returned null. LibreOffice initialization failed.");
+            throw new InvalidOperationException("libreofficekit_hook2 returned null. LibreOffice initialization failed.");
         }
 
         _instanceActive = true;
@@ -327,7 +539,9 @@ public sealed class Instance : IDisposable
         }
 
         installs.Sort((a, b) => a.version.CompareTo(b.version));
+#pragma warning disable IDE0056
         return installs.Count > 0 ? installs[installs.Count - 1].path : null;
+#pragma warning restore IDE0056
     }
     #endregion
 
@@ -360,20 +574,43 @@ public sealed class Instance : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
+        _logger?.LogInformation("Loading document: '{FileUrl}'", fileUrl);
+
         // Derive a filter name from the file extension so LOK does not have to guess.
         var filterName = GetFilterName(fileUrl);
-        var options = filterName != null ? $"FilterName={filterName}" : null;
+        _logger?.LogDebug("Resolved filter name: '{FilterName}' for file '{FileUrl}'", filterName ?? "(auto-detect)", fileUrl);
+
+        var optionsList = new List<string> 
+        { 
+            "Hidden=true", 
+            "MacroExecutionMode=4",
+            "TiledRendering=true",
+            "ReadOnly=true",
+            "UpdateDocMode=0",
+            "InteractionHandler=null"
+        };
+
+        if (!string.IsNullOrEmpty(filterName)) optionsList.Add($"FilterName={filterName}");
+
+        var options = string.Join(",", optionsList);
+
+        _logger?.LogDebug("Load options: '{Options}'", options);
 
         IntPtr pDoc;
-        if (_officeClass.documentLoadWithOptions != IntPtr.Zero && options != null)
+        if (_officeClass.documentLoadWithOptions != IntPtr.Zero)
         {
             var loadWithOptions = Marshal.GetDelegateForFunctionPointer<LokDocumentLoadWithOptionsFunction>(_officeClass.documentLoadWithOptions);
 
-            var pUrl = Marshal.StringToHGlobalAnsi(fileUrl);
-            var pOptions = Marshal.StringToHGlobalAnsi(options);
+            var pUrl = StringToHGlobalUtf8(fileUrl);
+            var pOptions = StringToHGlobalUtf8(options);
+
             try
             {
+                _logger?.LogDebug("Calling documentLoadWithOptions...");
+
                 pDoc = loadWithOptions(_pOffice, pUrl, pOptions);
+
+                _logger?.LogDebug("documentLoadWithOptions returned pointer: {Pointer:X}", (long)pDoc);
             }
             finally
             {
@@ -387,10 +624,15 @@ public sealed class Instance : IDisposable
                 throw new InvalidOperationException("documentLoad function not available.");
 
             var documentLoad = Marshal.GetDelegateForFunctionPointer<LokDocumentLoadFunction>(_officeClass.documentLoad);
-            var pUrl = Marshal.StringToHGlobalAnsi(fileUrl);
+            var pUrl = StringToHGlobalUtf8(fileUrl);
+
             try
             {
+                _logger?.LogDebug("Calling documentLoad...");
+
                 pDoc = documentLoad(_pOffice, pUrl);
+
+                _logger?.LogDebug("documentLoad returned pointer: {Pointer:X}", (long)pDoc);
             }
             finally
             {
@@ -398,11 +640,17 @@ public sealed class Instance : IDisposable
             }
         }
 
+        _logger?.LogDebug("Checking for errors...");
+
         var error = GetError();
         if (error == null)
+        {
+            _logger?.LogInformation("Document loaded successfully");
+
             return pDoc == IntPtr.Zero
                 ? throw new InvalidOperationException("documentLoad returned null pointer.")
                 : new Document(pDoc);
+        }
 
         // Check if the error indicates a password-protected document
         if (error.Contains("password", StringComparison.OrdinalIgnoreCase) ||
@@ -422,7 +670,6 @@ public sealed class Instance : IDisposable
         }
 
         throw new InvalidOperationException($"Failed to load document: '{error}'");
-
     }
     #endregion
 

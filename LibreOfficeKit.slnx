@@ -1,9 +1,5 @@
 <Solution>
-  <Folder Name="/Solution Items/">
-    <File Path="LibreOffice.ico" />
-    <File Path="LibreOffice.png" />
-    <File Path="README.md" />
-  </Folder>
+  <Folder Name="/Solution Items/" />
   <Project Path="LibreOfficeKit.Console/LibreOfficeKit.Console.csproj" />
   <Project Path="LibreOfficeKit/LibreOfficeKit.csproj" />
   <Project Path="LibreOfficeTest/LibreOfficeTest.csproj" Id="a1eed037-91bb-4f3c-b321-f0b3eb03cdb4" />

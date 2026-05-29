@@ -61,6 +61,13 @@ internal static class Program
     /// </returns>
     private static async Task<int> Main(string[] args)
     {
+        Environment.SetEnvironmentVariable("SAL_LOG", "+INFO", EnvironmentVariableTarget.Process);
+        Environment.SetEnvironmentVariable("JFW_PLUGIN_DO_NOT_CHECK_JAVAHOME", "1", EnvironmentVariableTarget.Process);
+        Environment.SetEnvironmentVariable("LOK_SPACE", "1", EnvironmentVariableTarget.Process);
+        Environment.SetEnvironmentVariable("SAL_DISABLE_SKIA", "1", EnvironmentVariableTarget.Process);
+        Environment.SetEnvironmentVariable("SAL_NO_OPENGL", "1", EnvironmentVariableTarget.Process);
+
+
         if (args is ["--worker", _, ..])
             return await WorkerProcess.RunAsync(args[1]).ConfigureAwait(false);
 
@@ -173,13 +180,16 @@ internal static class Program
             var inputUrl = Instance.PathToFileUrl(inputFile);
             var outputUrl = Instance.PathToFileUrl(outputFile);
 
-            System.Console.Write("Initializing LibreOffice... ");
-            using var office = Instance.Create(installPath);
-            System.Console.WriteLine("OK");
+            // Enable console logging for direct mode
+            Instance.EnableConsoleLogging(Microsoft.Extensions.Logging.LogLevel.Debug);
 
-            System.Console.Write("Loading document... ");
+            System.Console.WriteLine("Initializing LibreOffice... ");
+            using var office = Instance.Create(installPath);
+            System.Console.WriteLine("LibreOffice initialized");
+
+            System.Console.WriteLine("Loading document... ");
             using var document = office.DocumentLoad(inputUrl);
-            System.Console.WriteLine("OK");
+            System.Console.WriteLine("Document loaded");
 
             System.Console.Write("Converting to PDF... ");
             var success = document.SaveAs(outputUrl, "pdf");

@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
+
 using System.Runtime.InteropServices;
 
 namespace LibreOfficeKit.Bindings;
@@ -55,7 +56,12 @@ internal struct LibreOfficeKitClass
     public IntPtr getError;
 
     /// <summary>
-    ///     Function pointer: <c>documentLoadWithOptions</c> â€” not used but required for correct layout.
+    ///     Function pointer:
+    ///     <c>
+    ///         LibreOfficeKitDocument* (*documentLoadWithOptions)(LibreOfficeKit* pThis, const char* pURL, const char*
+    ///         pOptions)
+    ///     </c>
+    ///     .
     /// </summary>
     public IntPtr documentLoadWithOptions;
 
@@ -63,4 +69,36 @@ internal struct LibreOfficeKitClass
     ///     Function pointer: <c>void (*freeError)(char* pFree)</c>.
     /// </summary>
     public IntPtr freeError;
+
+    /// <summary>
+    ///     Function pointer:
+    ///     <c>void (*registerCallback)(LibreOfficeKit* pThis, LibreOfficeKitCallback pCallback, void* pData)</c>.
+    /// </summary>
+    public IntPtr registerCallback;
+
+    /// <summary>
+    ///     Function pointer: <c>char* (*getFilterTypes)(LibreOfficeKit* pThis)</c>.
+    /// </summary>
+    public IntPtr getFilterTypes;
+
+    /// <summary>
+    ///     Function pointer: <c>void (*setOptionalFeatures)(LibreOfficeKit* pThis, uint64_t nFeatures)</c>.
+    /// </summary>
+    public IntPtr setOptionalFeatures;
+
+    /// <summary>
+    ///     Function pointer:
+    ///     <c>void (*setDocumentPassword)(LibreOfficeKit* pThis, const char* pURL, const char* pPassword)</c>.
+    /// </summary>
+    public IntPtr setDocumentPassword;
+
+    /// <summary>
+    ///     Function pointer: <c>char* (*getVersionInfo)(LibreOfficeKit* pThis)</c>.
+    /// </summary>
+    public IntPtr getVersionInfo;
+
+    /// <summary>
+    ///     Function pointer: <c>bool (*runMacro)(LibreOfficeKit* pThis, const char* pURL, const char* pMacro)</c>.
+    /// </summary>
+    public IntPtr runMacro;
 }
