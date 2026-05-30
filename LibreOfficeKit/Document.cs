@@ -96,6 +96,8 @@ public sealed class Document : IDisposable
             _logger?.LogDebug("Filter options: '{FilterOptions}'", filterOptions);
 
         var saveAs = Marshal.GetDelegateForFunctionPointer<LokDocSaveAsFunction>(_docClass.saveAs);
+
+#if NETSTANDARD2_0
         var pUrl = Instance.StringToHGlobalUtf8(outputUrl);
         var pFormat = Instance.StringToHGlobalUtf8(format);
         var pFilter = filterOptions != null ? Instance.StringToHGlobalUtf8(filterOptions) : IntPtr.Zero;
@@ -118,6 +120,17 @@ public sealed class Document : IDisposable
             Marshal.FreeHGlobal(pFormat);
             if (pFilter != IntPtr.Zero) Marshal.FreeHGlobal(pFilter);
         }
+#else
+        var result = saveAs(_pDocument, outputUrl, format, filterOptions);
+        if (result != 0)
+        {
+            _logger?.LogInformation("Save operation succeeded.");
+            return true;
+        }
+
+        _logger?.LogInformation("Save operation failed.");
+        return false;
+#endif
     }
     
     /// <summary>

@@ -63,12 +63,6 @@ internal static class Program
     /// </returns>
     private static async Task<int> Main(string[] args)
     {
-        Environment.SetEnvironmentVariable("SAL_LOG", "+INFO", EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable("JFW_PLUGIN_DO_NOT_CHECK_JAVAHOME", "1", EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable("LOK_SPACE", "1", EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable("SAL_DISABLE_SKIA", "1", EnvironmentVariableTarget.Process);
-        Environment.SetEnvironmentVariable("SAL_NO_OPENGL", "1", EnvironmentVariableTarget.Process);
-
         if (args is ["--worker", _, ..])
             return await WorkerProcess.RunAsync(args[1]).ConfigureAwait(false);
 
