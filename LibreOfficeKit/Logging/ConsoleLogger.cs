@@ -25,7 +25,7 @@
 //
 // =============================================================================
 //
-// Simple console logger implementation for direct mode debugging.
+// Console logger implementation using StreamLogger with Console.OpenStandardOutput().
 // =============================================================================
 
 using Microsoft.Extensions.Logging;
@@ -33,20 +33,16 @@ using Microsoft.Extensions.Logging;
 namespace LibreOfficeKit.Logging;
 
 /// <summary>
-///     Simple console logger for LibreOfficeKit direct mode.
+///     Console logger for LibreOfficeKit. Internally uses <see cref="StreamLogger"/> 
+///     with <see cref="Console.OpenStandardOutput()"/>.
 /// </summary>
-internal sealed class ConsoleLogger : ILogger
+public sealed class ConsoleLogger : ILogger, IDisposable
 {
     #region Fields
     /// <summary>
-    ///  The category name
+    ///     The underlying stream logger writing to Console.Out
     /// </summary>
-    private readonly string _categoryName;
-
-    /// <summary>
-    ///     Minimal log level
-    /// </summary>
-    private readonly LogLevel _minLevel;
+    private readonly StreamLogger _streamLogger;
     #endregion
 
     #region Constructor
@@ -55,24 +51,22 @@ internal sealed class ConsoleLogger : ILogger
     /// </summary>
     /// <param name="categoryName">The category name for the logger.</param>
     /// <param name="minLevel">The minimum log level to output.</param>
-    internal ConsoleLogger(string categoryName, LogLevel minLevel = LogLevel.Information)
+    public ConsoleLogger(string? categoryName = null, LogLevel minLevel = LogLevel.Information)
     {
-        _categoryName = categoryName;
-        _minLevel = minLevel;
+        // Use Console.OpenStandardOutput() to get the console stream
+        // leaveOpen: true because we don't own the console stream
+        var consoleStream = Console.OpenStandardOutput();
+        _streamLogger = new StreamLogger(consoleStream, categoryName, minLevel, leaveOpen: true);
     }
     #endregion
 
-    #region BeginScope
+    #region ILogger Implementation
     /// <inheritdoc />
-    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
-    #endregion
+    public IDisposable? BeginScope<TState>(TState state) where TState : notnull => _streamLogger.BeginScope(state);
 
-    #region IsEnabled
     /// <inheritdoc />
-    public bool IsEnabled(LogLevel logLevel) => logLevel >= _minLevel;
-    #endregion
+    public bool IsEnabled(LogLevel logLevel) => _streamLogger.IsEnabled(logLevel);
 
-    #region Log
     /// <inheritdoc />
     public void Log<TState>(
         LogLevel logLevel,
@@ -81,26 +75,17 @@ internal sealed class ConsoleLogger : ILogger
         Exception? exception,
         Func<TState, Exception?, string> formatter)
     {
-        if (!IsEnabled(logLevel))
-            return;
+        _streamLogger.Log(logLevel, eventId, state, exception, formatter);
+    }
+    #endregion
 
-        var message = formatter(state, exception);
-        var timestamp = DateTime.Now.ToString("HH:mm:ss.fff");
-        var level = logLevel switch
-        {
-            LogLevel.Trace       => "TRC",
-            LogLevel.Debug       => "DBG",
-            LogLevel.Information => "INF",
-            LogLevel.Warning     => "WRN",
-            LogLevel.Error       => "ERR",
-            LogLevel.Critical    => "CRT",
-            _                    => "   "
-        };
-
-        Console.WriteLine($"{timestamp} [{level}]: {message}");
-
-        if (exception != null)
-            Console.WriteLine($"Exception:\n{exception}");
+    #region IDisposable Implementation
+    /// <summary>
+    ///     Disposes the logger. Note: Console stream is not disposed (leaveOpen: true).
+    /// </summary>
+    public void Dispose()
+    {
+        _streamLogger.Dispose();
     }
     #endregion
 }

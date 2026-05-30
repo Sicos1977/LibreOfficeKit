@@ -1,19 +1,35 @@
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
 
-namespace LibreOfficeKit;
+namespace LibreOfficeKit.Logging;
 
 /// <summary>
 ///     A logger that sends log messages to the host process via the named pipe.
 /// </summary>
 internal sealed class PipeLogger(string categoryName, StreamWriter writer) : ILogger
 {
+    #region Fields
+#if NETSTANDARD2_0
+    /// <summary>
+    ///     Lock for thread-safe writing
+    /// </summary>
     private readonly object _lock = new();
+#else
+    /// <summary>
+    ///     Lock for thread-safe writing
+    /// </summary>
+    private readonly Lock _lock = new();
+#endif
+    #endregion
 
+    #region ILogger Implementation
+    /// <inheritdoc />
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
+    /// <inheritdoc />
     public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
 
+    /// <inheritdoc />
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
     {
         var message = formatter(state, exception);
@@ -41,4 +57,5 @@ internal sealed class PipeLogger(string categoryName, StreamWriter writer) : ILo
             }
         }
     }
+    #endregion
 }

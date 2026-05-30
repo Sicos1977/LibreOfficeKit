@@ -359,10 +359,6 @@ public class ConverterTests
         var logger = loggerFactory.CreateLogger<Converter>();
         logger.LogInformation("Logger initialized, creating Converter...");
 
-        // Set the logger for LibreOfficeKit callbacks
-        var lokLogger = loggerFactory.CreateLogger("LibreOfficeKit.Callbacks");
-        Instance.SetLogger(lokLogger);
-
         //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0), logger: logger);
         _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe", logger);
     }

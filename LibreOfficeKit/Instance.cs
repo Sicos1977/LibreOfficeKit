@@ -33,11 +33,11 @@
 
 using LibreOfficeKit.Bindings;
 using LibreOfficeKit.Enums;
-using LibreOfficeKit.Logging;
 using Microsoft.Extensions.Logging;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Text.Json;
 // ReSharper disable NotAccessedField.Local
 
 #if !NETSTANDARD2_0
@@ -93,12 +93,7 @@ public sealed class Instance : IDisposable
     ///     Optional logger for callback events.
     /// </summary>
     private static ILogger? _logger;
-
-    /// <summary>
-    ///     Gets the current logger instance.
-    /// </summary>
-    internal static ILogger? Logger => _logger;
-
+    
     /// <summary>
     ///     Library names to search for on Windows.
     /// </summary>
@@ -115,7 +110,7 @@ public sealed class Instance : IDisposable
     private static readonly string[] MacosLibs = ["libsofficeapp.dylib", "libmergedlo.dylib"];
     #endregion
 
-    #region LibreOfficeInstance
+    #region Constructor
     /// <summary>
     ///     Initializes a new instance of <see cref="Instance" /> from native pointers.
     /// </summary>
@@ -146,6 +141,36 @@ public sealed class Instance : IDisposable
     }
     #endregion
 
+    #region Utf8PtrToString
+    /// <summary>
+    ///     Converts a UTF-8 encoded unmanaged string pointer to a C# string.
+    /// </summary>
+    /// <param name="ptr">Pointer to the UTF-8 encoded null-terminated string.</param>
+    /// <returns>The managed string, or null if the pointer is IntPtr.Zero.</returns>
+    internal static string? Utf8PtrToString(IntPtr ptr)
+    {
+        // ReSharper disable once ConvertIfStatementToReturnStatement
+        if (ptr == IntPtr.Zero)
+            return null;
+
+#if NET5_0_OR_GREATER
+        return Marshal.PtrToStringUTF8(ptr);
+#else
+        // For .NET Standard 2.0, manually decode UTF-8
+        var length = 0;
+        while (Marshal.ReadByte(ptr, length) != 0)
+            length++;
+
+        if (length == 0)
+            return string.Empty;
+
+        var bytes = new byte[length];
+        Marshal.Copy(ptr, bytes, 0, length);
+        return Encoding.UTF8.GetString(bytes);
+#endif
+    }
+    #endregion
+
     #region Callback Implementation
 #if NET5_0_OR_GREATER
     /// <summary>
@@ -161,7 +186,7 @@ public sealed class Instance : IDisposable
         try
         {
             // Convert the UTF-8 payload to a managed string
-            var payload = pPayload != null ? Marshal.PtrToStringUTF8((IntPtr)pPayload) ?? string.Empty : string.Empty;
+            var payload = pPayload != null ? Utf8PtrToString((IntPtr)pPayload) ?? string.Empty : string.Empty;
 
             HandleLibreOfficeEvent(type, payload);
         }
@@ -271,26 +296,6 @@ public sealed class Instance : IDisposable
     }
     #endregion
 
-    #region SetLogger
-    /// <summary>
-    ///     Sets the logger for LibreOfficeKit callback events.
-    /// </summary>
-    /// <param name="logger">The logger to use for callback events.</param>
-    public static void SetLogger(ILogger? logger)
-    {
-        _logger = logger;
-    }
-
-    /// <summary>
-    ///     Enables console logging for direct mode.
-    /// </summary>
-    /// <param name="minLevel">The minimum log level to output. Defaults to Information.</param>
-    public static void EnableConsoleLogging(LogLevel minLevel = LogLevel.Information)
-    {
-        _logger = new ConsoleLogger("LibreOfficeKit", minLevel);
-    }
-    #endregion
-
     #region Create
     /// <summary>
     ///     Creates a new LibreOffice instance from the specified install path.
@@ -298,11 +303,16 @@ public sealed class Instance : IDisposable
     ///     and verifies that no initialization errors occurred.
     /// </summary>
     /// <param name="installPath">Absolute path to the LibreOffice program directory.</param>
+    /// <param name="logger">Optional logger for LibreOfficeKit events and diagnostics.</param>
     /// <returns>A new <see cref="Instance" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when an instance is already active or initialization fails.</exception>
     /// <exception cref="DirectoryNotFoundException">Thrown when the install path does not exist.</exception>
-    public static Instance Create(string installPath)
+    public static Instance Create(string installPath, ILogger? logger = null)
     {
+        _logger = logger;
+
+        _logger?.LogInformation("Initializing LibreOffice...");
+
         if (_instanceActive)
             throw new InvalidOperationException("Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
 
@@ -392,7 +402,7 @@ public sealed class Instance : IDisposable
                     // For .NET Standard 2.0, use the managed delegate approach
                     var registerCallback = Marshal.GetDelegateForFunctionPointer<LokRegisterCallbackFunction>(vtable.registerCallback);
                     registerCallback(pOffice, CallbackDelegate, IntPtr.Zero);
-                    _logger?.LogDebug("LibreOffice callback successfully registered via vtable (unmanaged)");
+                    _logger?.LogDebug("LibreOffice callback successfully registered via vtable (managed)");
 #endif
                 }
 
@@ -422,10 +432,73 @@ public sealed class Instance : IDisposable
         _instanceActive = true;
         var instance = new Instance(pOffice, libraryHandle);
         var initError = instance.GetError();
-        if (initError == null) return instance;
+        if (initError == null)
+        {
+            // Log version information
+            instance.LogVersionInfo();
+
+            _logger?.LogInformation("LibreOffice initialized");
+            return instance;
+        }
 
         instance.Dispose();
         throw new InvalidOperationException($"LibreOffice initialization error: {initError}");
+    }
+    #endregion
+
+    #region LogVersionInfo
+    /// <summary>
+    ///     Retrieves and logs the LibreOffice version information.
+    /// </summary>
+    private void LogVersionInfo()
+    {
+        if (_officeClass.getVersionInfo == IntPtr.Zero)
+        {
+            _logger?.LogWarning("getVersionInfo function not available");
+            return;
+        }
+
+        try
+        {
+            var getVersionInfo = Marshal.GetDelegateForFunctionPointer<LokGetVersionInfoFunction>(_officeClass.getVersionInfo);
+            var pVersionInfo = getVersionInfo(_pOffice);
+
+            if (pVersionInfo == IntPtr.Zero)
+            {
+                _logger?.LogWarning("getVersionInfo returned null");
+                return;
+            }
+
+            var versionInfoJson = Utf8PtrToString(pVersionInfo);
+            if (string.IsNullOrWhiteSpace(versionInfoJson))
+            {
+                _logger?.LogWarning("getVersionInfo returned empty string");
+                return;
+            }
+
+            // Parse JSON to version info object
+            var versionInfo = JsonSerializer.Deserialize<VersionInfo>(versionInfoJson);
+            if (versionInfo == null)
+            {
+                _logger?.LogWarning("Failed to parse version info JSON: '{VersionInfoJson}'", versionInfoJson);
+                return;
+            }
+
+            // Log structured version information
+            _logger?.LogInformation(
+                "LibreOffice version: '{ProductName}' '{FullVersion}', Build: '{BuildId}'",
+                versionInfo.ProductName,
+                versionInfo.FullVersion,
+                versionInfo.BuildId);
+        }
+        catch (JsonException jsonEx)
+        {
+            _logger?.LogWarning(jsonEx, "Failed to parse LibreOffice version JSON");
+        }
+        catch (Exception ex)
+        {
+            _logger?.LogWarning(ex, "Failed to retrieve LibreOffice version information");
+        }
     }
     #endregion
 
@@ -649,7 +722,7 @@ public sealed class Instance : IDisposable
 
             return pDoc == IntPtr.Zero
                 ? throw new InvalidOperationException("documentLoad returned null pointer.")
-                : new Document(pDoc);
+                : new Document(pDoc, _logger);
         }
 
         // Check if the error indicates a password-protected document

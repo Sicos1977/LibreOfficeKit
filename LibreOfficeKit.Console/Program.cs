@@ -35,6 +35,8 @@
 // each with its own isolated LibreOfficeKit instance.
 // =============================================================================
 
+using Microsoft.Extensions.Logging;
+
 namespace LibreOfficeKit.Console;
 
 /// <summary>
@@ -66,7 +68,6 @@ internal static class Program
         Environment.SetEnvironmentVariable("LOK_SPACE", "1", EnvironmentVariableTarget.Process);
         Environment.SetEnvironmentVariable("SAL_DISABLE_SKIA", "1", EnvironmentVariableTarget.Process);
         Environment.SetEnvironmentVariable("SAL_NO_OPENGL", "1", EnvironmentVariableTarget.Process);
-
 
         if (args is ["--worker", _, ..])
             return await WorkerProcess.RunAsync(args[1]).ConfigureAwait(false);
@@ -159,59 +160,50 @@ internal static class Program
     {
         outputFile ??= Path.ChangeExtension(inputFile, ".pdf");
 
+        using var logger = new Logging.ConsoleLogger(minLevel: LogLevel.Debug);
+
         try
         {
-            System.Console.Write("Searching for LibreOffice installation... ");
+            logger.LogInformation("Searching for LibreOffice installation...");
             var installPath = Instance.FindInstallPath();
             if (installPath == null)
             {
-                System.Console.Error.WriteLine("FAILED — LibreOffice not found.");
+                logger.LogError("LibreOffice not found");
                 return 1;
             }
 
-            System.Console.WriteLine($"OK '{installPath}'");
+            logger.LogInformation("Found LibreOffice at: '{InstallPath}'", installPath);
 
             if (!File.Exists(inputFile))
             {
-                System.Console.Error.WriteLine($"ERROR: Input file not found: '{inputFile}', working directory: '{Directory.GetCurrentDirectory()}'");
+                logger.LogError("Input file not found: '{InputFile}', working directory: '{WorkingDirectory}'", inputFile, Directory.GetCurrentDirectory());
                 return 1;
             }
 
             var inputUrl = Instance.PathToFileUrl(inputFile);
             var outputUrl = Instance.PathToFileUrl(outputFile);
-
-            // Enable console logging for direct mode
-            Instance.EnableConsoleLogging(Microsoft.Extensions.Logging.LogLevel.Debug);
-
-            System.Console.WriteLine("Initializing LibreOffice... ");
-            using var office = Instance.Create(installPath);
-            System.Console.WriteLine("LibreOffice initialized");
-
-            System.Console.WriteLine("Loading document... ");
+            using var office = Instance.Create(installPath, logger);
             using var document = office.DocumentLoad(inputUrl);
-            System.Console.WriteLine("Document loaded");
-
-            System.Console.Write("Converting to PDF... ");
             var success = document.SaveAs(outputUrl, "pdf");
 
             if (success)
             {
-                System.Console.WriteLine("OK");
+                logger.LogInformation("Conversion successful");
                 if (!File.Exists(outputFile)) return 0;
                 var fileInfo = new FileInfo(outputFile);
-                System.Console.WriteLine($"\n  Output: '{outputFile}' ({fileInfo.Length:N0} bytes)");
+                logger.LogInformation("Output: '{OutputFile}' ({Size:N0} bytes)", outputFile, fileInfo.Length);
                 return 0;
             }
 
-            System.Console.Error.WriteLine("FAILED");
+            logger.LogError("Conversion failed");
             var error = office.GetError();
             if (error != null)
-                System.Console.Error.WriteLine($"  Error: '{error}'");
+                logger.LogError("Error: '{Error}'", error);
             return 1;
         }
         catch (Exception exception)
         {
-            System.Console.Error.WriteLine($"\nERROR: '{exception.Message}'");
+            logger.LogError(exception, "Conversion failed with exception");
             return 1;
         }
     }

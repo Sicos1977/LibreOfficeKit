@@ -114,6 +114,14 @@ internal delegate IntPtr LokGetErrorFunction(IntPtr pOffice);
 internal delegate void LokFreeErrorFunction(IntPtr pFree);
 
 /// <summary>
+///     Delegate for <c>LibreOfficeKitClass.getVersionInfo</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <returns>Pointer to a UTF-8 encoded JSON string containing version information. Does not need to be freed.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate IntPtr LokGetVersionInfoFunction(IntPtr pOffice);
+
+/// <summary>
 ///     Delegate for <c>LibreOfficeKitDocumentClass.destroy</c>.
 /// </summary>
 /// <param name="pDocument">Pointer to the LibreOfficeKitDocument instance to destroy.</param>

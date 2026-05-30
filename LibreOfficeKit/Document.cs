@@ -47,6 +47,11 @@ public sealed class Document : IDisposable
 
     /// <summary>Indicates whether this instance has been disposed.</summary>
     private bool _disposed;
+
+    /// <summary>
+    ///     The logger instance for this document. It can be used to log debug information about the document's operations.
+    /// </summary>
+    private readonly ILogger? _logger;
     #endregion
 
     #region Constructor
@@ -54,18 +59,20 @@ public sealed class Document : IDisposable
     ///     Initializes a new instance of <see cref="Document" /> wrapping the given native document pointer.
     /// </summary>
     /// <param name="pDocument">Pointer to the native LibreOfficeKitDocument.</param>
-    internal Document(IntPtr pDocument)
+    /// <param name="logger">The logger instance.</param>
+    internal Document(IntPtr pDocument, ILogger? logger)
     {
-        Instance.Logger?.LogDebug("Document constructor called with pointer: {Pointer:X}", (long)pDocument);
+        _logger = logger;
+        _logger?.LogDebug("Document constructor called with pointer: {Pointer:X}", (long)pDocument);
         _pDocument = pDocument;
 
-        Instance.Logger?.LogDebug("Reading LibreOfficeKitDocument structure...");
+        _logger?.LogDebug("Reading LibreOfficeKitDocument structure...");
         var doc = Marshal.PtrToStructure<LibreOfficeKitDocument>(_pDocument);
 
-        Instance.Logger?.LogDebug("Reading LibreOfficeKitDocumentClass vtable...");
+        _logger?.LogDebug("Reading LibreOfficeKitDocumentClass vtable...");
         _docClass = Marshal.PtrToStructure<LibreOfficeKitDocumentClass>(doc.pClass);
 
-        Instance.Logger?.LogDebug("Document object fully initialized");
+        _logger?.LogDebug("Document object fully initialized");
     }
     #endregion
 
@@ -84,6 +91,10 @@ public sealed class Document : IDisposable
         if (_docClass.saveAs == IntPtr.Zero)
             throw new InvalidOperationException("saveAs function not available in this LibreOffice version.");
 
+        _logger?.LogInformation("Saving document as '{Format}' to '{OutputUrl}'", format, outputUrl);
+        if (filterOptions != null)
+            _logger?.LogDebug("Filter options: '{FilterOptions}'", filterOptions);
+
         var saveAs = Marshal.GetDelegateForFunctionPointer<LokDocSaveAsFunction>(_docClass.saveAs);
         var pUrl = Instance.StringToHGlobalUtf8(outputUrl);
         var pFormat = Instance.StringToHGlobalUtf8(format);
@@ -92,7 +103,14 @@ public sealed class Document : IDisposable
         try
         {
             var result = saveAs(_pDocument, pUrl, pFormat, pFilter);
-            return result != 0;
+            if (result != 0)
+            {
+                _logger?.LogInformation("Save operation succeeded.");
+                return true;
+            }
+
+            _logger?.LogInformation("Save operation failed.");
+            return false;
         }
         finally
         {
@@ -139,13 +157,17 @@ public sealed class Document : IDisposable
         if (_docClass.getDocumentType == IntPtr.Zero)
             throw new InvalidOperationException("getDocumentType function not available.");
 
-        var getDocType =
-            Marshal.GetDelegateForFunctionPointer<LokDocGetDocumentTypeFunction>(_docClass.getDocumentType);
+        _logger?.LogDebug("Getting document type...");
+
+        var getDocType = Marshal.GetDelegateForFunctionPointer<LokDocGetDocumentTypeFunction>(_docClass.getDocumentType);
         var result = getDocType(_pDocument);
-
         if (Enum.IsDefined(typeof(DocumentType), result))
+        {
+            _logger?.LogDebug("Document type: '{Result}'", (DocumentType)result);
             return (DocumentType)result;
+        }
 
+        _logger?.LogDebug("Unknown document type value: '{Result}'", result);
         return DocumentType.Other;
     }
     #endregion

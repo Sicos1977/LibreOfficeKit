@@ -28,6 +28,7 @@ using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
 using System.IO.Pipes;
 using LibreOfficeKit.Enums;
+using LibreOfficeKit.Logging;
 
 // ReSharper disable UnusedMember.Global
 
@@ -48,7 +49,11 @@ public static class WorkerProcess
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
     public static async Task<int> RunAsync(string pipeName)
     {
+#if NETSTANDARD2_0
         using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+#else
+        await using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
+#endif
 
         try
         {
@@ -59,8 +64,13 @@ public static class WorkerProcess
             return 1;
         }
 
+#if NETSTANDARD2_0
         using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, true);
         using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true);
+#else
+        using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, true);
+        await using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true);
+#endif
         writer.AutoFlush = true;
 
         // Now that we have the pipe connected, create the logger
