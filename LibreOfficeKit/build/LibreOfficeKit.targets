@@ -1,0 +1,25 @@
+<Project>
+  <!--
+	Determines the current runtime identifier based on the OS and architecture,
+	then copies the matching LibreOfficeKit.Console worker executable to the
+	consuming project's output directory.
+  -->
+  <PropertyGroup>
+	<_LokWorkerRid Condition="$([MSBuild]::IsOSPlatform('Windows'))">win-x64</_LokWorkerRid>
+	<_LokWorkerRid Condition="$([MSBuild]::IsOSPlatform('Linux'))">linux-x64</_LokWorkerRid>
+	<_LokWorkerRid Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' == 'Arm64'">osx-arm64</_LokWorkerRid>
+	<_LokWorkerRid Condition="$([MSBuild]::IsOSPlatform('OSX')) And '$([System.Runtime.InteropServices.RuntimeInformation]::ProcessArchitecture)' != 'Arm64'">osx-x64</_LokWorkerRid>
+
+	<_LokWorkerExe Condition="$([MSBuild]::IsOSPlatform('Windows'))">LibreOfficeKit.Console.exe</_LokWorkerExe>
+	<_LokWorkerExe Condition="!$([MSBuild]::IsOSPlatform('Windows'))">LibreOfficeKit.Console</_LokWorkerExe>
+
+	<_LokWorkerPath>$(MSBuildThisFileDirectory)..\runtimes\$(_LokWorkerRid)\native\$(_LokWorkerExe)</_LokWorkerPath>
+  </PropertyGroup>
+
+  <ItemGroup Condition="'$(_LokWorkerRid)' != '' And Exists('$(_LokWorkerPath)')">
+	<None Include="$(_LokWorkerPath)">
+	  <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+	  <Visible>false</Visible>
+	</None>
+  </ItemGroup>
+</Project>
