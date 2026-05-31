@@ -35,10 +35,12 @@ public class ConverterTests
     #region Fields
     private static Converter _converter = null!;
     private static DirectoryInfo _tempDirectory = null!;
+    // ReSharper disable once NotAccessedField.Local
     private static TestContext _testContext = null!;
     #endregion
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task ConvertToPdfAsync_Timeouts_WhenWorkerIsDelayed()
     {
         var workerPath = Path.Combine(AppContext.BaseDirectory, "LibreOfficeKit.Console.exe");
@@ -68,6 +70,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task FileIsCorrupt()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A corrupt compound document.pdf");
@@ -98,6 +101,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOC word document with password.pdf");
@@ -108,6 +112,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocxWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOCX word document without embedded files.pdf");
@@ -116,6 +121,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocxWith7EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOCX word document with 7 embedded files.pdf");
@@ -124,6 +130,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocxWith7EmbeddedFiles10Times()
     {
         var currentDir = AppContext.BaseDirectory;
@@ -137,6 +144,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task DocxWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOCX word document with password.pdf");
@@ -167,6 +175,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task XlsWith2EmbeddedFiles10Times()
     {
         var currentDir = AppContext.BaseDirectory;
@@ -197,6 +206,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task XlsxWith2EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A XLSX excel document with 2 embedded files.pdf");
@@ -205,6 +215,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task XlsxWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A XLSX excel document with password.pdf");
@@ -213,6 +224,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task CsvSemicolonSeparated()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "Semicolon separated csv.pdf");
@@ -221,6 +233,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task CsvCommaSeparated()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "Comma separated csv.pdf");
@@ -229,6 +242,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task CsvSpaceSeparated()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "Space separated csv.pdf");
@@ -248,6 +262,7 @@ public class ConverterTests
 
     #region Microsoft Office PowerPoint tests
     [TestMethod]
+    [Timeout(10000)]
     public async Task PptWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A PPT PowerPoint document without embedded files.pdf");
@@ -265,6 +280,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task PptWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A PPT PowerPoint document with password.pdf");
@@ -272,6 +288,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task PptxWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A PPTX PowerPoint document without embedded files.pdf");
@@ -280,6 +297,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task PptxWith3EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A PPTX PowerPoint document with 3 embedded files.pdf");
@@ -298,6 +316,7 @@ public class ConverterTests
 
     #region Open Office Writer tests
     [TestMethod]
+    [Timeout(10000)]
     public async Task OdtWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "An ODT document without embedded files.pdf");
@@ -306,6 +325,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task OdtWith8EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "An ODT document with 8 embedded files.pdf");
@@ -314,6 +334,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task OdtWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "An ODT document with password.pdf");
@@ -323,6 +344,7 @@ public class ConverterTests
     
     #region Open Office Impress tests
     [TestMethod]
+    [Timeout(10000)]
     public async Task OdpWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "An ODP document without embedded files.pdf");
@@ -331,6 +353,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task OdpWith3EmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "An ODP document with 3 embedded files.pdf");
@@ -339,6 +362,7 @@ public class ConverterTests
     }
 
     [TestMethod]
+    [Timeout(10000)]
     public async Task OdpWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "OdpWithPassword.pdf");
@@ -355,7 +379,7 @@ public class ConverterTests
         _tempDirectory = new DirectoryInfo(tempDirectory);
         _tempDirectory.Create();
 
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).AddFilter(null, LogLevel.Trace));
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).AddFilter(null, LogLevel.Debug));
         var logger = loggerFactory.CreateLogger<Converter>();
         logger.LogInformation("Logger initialized, creating Converter...");
 

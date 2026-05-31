@@ -64,7 +64,21 @@ internal static class Program
     private static async Task<int> Main(string[] args)
     {
         if (args is ["--worker", _, ..])
-            return await WorkerProcess.RunAsync(args[1]).ConfigureAwait(false);
+        {
+            var pipeName = args[1];
+            var logLevel = LogLevel.Information; // Default
+
+            // Check if --loglevel argument is provided
+            if (args.Length < 4) return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+            for (var i = 2; i < args.Length - 1; i++)
+            {
+                if (args[i] != "--loglevel" || !int.TryParse(args[i + 1], out var logLevelInt)) continue;
+                logLevel = (LogLevel)logLevelInt;
+                break;
+            }
+
+            return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+        }
 
         System.Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
         System.Console.WriteLine("  Multi-process pool architecture with hot standby");
@@ -85,9 +99,9 @@ internal static class Program
 
         // No arguments — show usage
         System.Console.WriteLine("Usage:");
-        System.Console.WriteLine("  LibreOfficeKit.Console <input> [output]            Convert using worker pool");
-        System.Console.WriteLine("  LibreOfficeKit.Console --direct <input> [output]   Convert directly (single process)");
-        System.Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName>         (internal: worker mode)");
+        System.Console.WriteLine("  LibreOfficeKit.Console <input> [output]                       Convert using worker pool");
+        System.Console.WriteLine("  LibreOfficeKit.Console --direct <input> [output]              Convert directly (single process)");
+        System.Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName> [--loglevel <0-6>] (internal: worker mode)");
         return 0;
     }
     #endregion

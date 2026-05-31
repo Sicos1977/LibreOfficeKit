@@ -168,8 +168,8 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <param name="maxInstances">Maximum number of worker processes.</param>
     /// <param name="minHotStandby">Number of workers to start immediately and keep warm.</param>
     /// <param name="idleTimeout">Time after which idle workers (beyond hot standby) are shut down.</param>
-    /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
     /// <param name="workerExePath">Optional path to the worker executable. If null or empty, it will be resolved automatically.</param>
+    /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
     public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger<Converter>? logger = null)
     {
         _logger = logger ?? NullLogger<Converter>.Instance;
@@ -240,6 +240,27 @@ public class Converter : IDisposable, IAsyncDisposable
         _healthMonitorTask = Task.Run(() => HealthMonitorLoopAsync(_cancellationTokenSource.Token));
         _idleMonitorTask = Task.Run(() => IdleMonitorLoopAsync(_cancellationTokenSource.Token));
         _logger.LogInformation("Converter initialization complete");
+    }
+    #endregion
+
+    #region GetMinimumLogLevel
+    /// <summary>
+    ///     Determines the minimum enabled log level for the logger.
+    /// </summary>
+    /// <returns>The minimum log level that is enabled, or <see cref="LogLevel.None"/> if no logger is configured.</returns>
+    private LogLevel GetMinimumLogLevel()
+    {
+        // If no logger is provided (NullLogger), worker should not log
+        if (_logger is NullLogger<Converter>)
+            return LogLevel.None;
+
+        // Check levels from most verbose to least verbose
+        if (_logger.IsEnabled(LogLevel.Trace)) return LogLevel.Trace;
+        if (_logger.IsEnabled(LogLevel.Debug)) return LogLevel.Debug;
+        if (_logger.IsEnabled(LogLevel.Information)) return LogLevel.Information;
+        if (_logger.IsEnabled(LogLevel.Warning)) return LogLevel.Warning;
+        if (_logger.IsEnabled(LogLevel.Error)) return LogLevel.Error;
+        return _logger.IsEnabled(LogLevel.Critical) ? LogLevel.Critical : LogLevel.None;
     }
     #endregion
 
@@ -364,6 +385,7 @@ public class Converter : IDisposable, IAsyncDisposable
     private async Task ExecuteOnWorkerAsync(Func<WorkerHandle, Task> action, DateTime? deadline = null)
     {
         WorkerHandle? worker = null;
+        bool workerFromWait = false;
 
         try
         {
@@ -405,12 +427,27 @@ public class Converter : IDisposable, IAsyncDisposable
                             if (!signaled)
                                 throw new TimeoutException("Conversion timed out.");
 
-                            _availableWorkers.TryTake(out worker);
+                            if (!_availableWorkers.TryTake(out worker))
+                            {
+                                // Race condition: semaphore was signaled but no worker available
+                                // This can happen if another thread took the worker between signal and TryTake
+                                // Release the semaphore signal we consumed and retry
+                                _workerAvailable.Release();
+                                continue;
+                            }
+                            workerFromWait = true;
                         }
                         else
                         {
                             await _workerAvailable.WaitAsync(_cancellationTokenSource.Token).ConfigureAwait(false);
-                            _availableWorkers.TryTake(out worker);
+                            if (!_availableWorkers.TryTake(out worker))
+                            {
+                                // Race condition: semaphore was signaled but no worker available
+                                // Release the semaphore signal we consumed and retry
+                                _workerAvailable.Release();
+                                continue;
+                            }
+                            workerFromWait = true;
                         }
                     }
                 }
@@ -432,11 +469,34 @@ public class Converter : IDisposable, IAsyncDisposable
             {
                 worker.MarkIdle();
                 _availableWorkers.Add(worker);
-                _workerAvailable.Release();
+                // Try to release - this may fail if semaphore is already at max, which can happen
+                // due to race conditions or if the worker was pre-spawned during initialization
+                try
+                {
+                    _workerAvailable.Release();
+                }
+                catch (SemaphoreFullException)
+                {
+                    // Semaphore is already at maximum - this is OK, it means the worker
+                    // was already counted in the semaphore (e.g., from initialization or a race condition)
+                    _logger.LogTrace("Semaphore already at maximum when returning worker '{PipeName}' - this is expected in some scenarios", worker.PipeName);
+                }
             }
             else if (worker != null)
             {
                 RemoveWorker(worker);
+                // If we consumed a semaphore signal but the worker died, we need to release it back
+                if (workerFromWait)
+                {
+                    try
+                    {
+                        _workerAvailable.Release();
+                    }
+                    catch (SemaphoreFullException)
+                    {
+                        _logger.LogTrace("Semaphore already at maximum when releasing signal for dead worker '{PipeName}'", worker.PipeName);
+                    }
+                }
                 _ = EnsureHotStandbyAsync();
             }
         }
@@ -459,10 +519,11 @@ public class Converter : IDisposable, IAsyncDisposable
 
         try
         {
+            var logLevel = GetMinimumLogLevel();
             process = Process.Start(new ProcessStartInfo
             {
                 FileName = _workerExePath!,
-                Arguments = $"--worker {pipeName}",
+                Arguments = $"--worker {pipeName} --loglevel {(int)logLevel}",
                 UseShellExecute = false,
                 CreateNoWindow = true,
             }) ?? throw new ConversionFailedException("Failed to start worker process.");

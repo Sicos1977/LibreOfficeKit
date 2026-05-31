@@ -6,7 +6,7 @@ namespace LibreOfficeKit.Logging;
 /// <summary>
 ///     A logger that sends log messages to the host process via the named pipe.
 /// </summary>
-internal sealed class PipeLogger(string categoryName, StreamWriter writer) : ILogger
+internal sealed class PipeLogger(string categoryName, StreamWriter writer, LogLevel minLogLevel = LogLevel.Information) : ILogger
 {
     #region Fields
 #if NETSTANDARD2_0
@@ -27,7 +27,7 @@ internal sealed class PipeLogger(string categoryName, StreamWriter writer) : ILo
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
 
     /// <inheritdoc />
-    public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None;
+    public bool IsEnabled(LogLevel logLevel) => logLevel != LogLevel.None && logLevel >= minLogLevel;
 
     /// <inheritdoc />
     public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)

@@ -156,7 +156,7 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
         await _sendLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            _logger.LogDebug("Sending {RequestType} to worker '{PipeName}'", request.GetType().Name, PipeName);
+            _logger.LogTrace("Sending {RequestType} to worker '{PipeName}'", request.GetType().Name, PipeName);
             var json = IpcSerializer.Serialize(request);
             await _writer.WriteLineAsync(json).ConfigureAwait(false);
             await _writer.FlushAsync().ConfigureAwait(false);
@@ -165,7 +165,7 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
             switch (response)
             {
                 case T typed:
-                    _logger.LogDebug("Received {ResponseType} from worker '{PipeName}'", typeof(T).Name, PipeName);
+                    _logger.LogTrace("Received {ResponseType} from worker '{PipeName}'", typeof(T).Name, PipeName);
                     return typed;
                 case ErrorResponse err:
                     _logger.LogError("Worker '{PipeName}' returned error: {Error}", PipeName, err.Message);
@@ -199,6 +199,7 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
         {
             try
             {
+                // ReSharper disable once MethodSupportsCancellation
                 var readTask = _reader.ReadLineAsync();
                 var delayTask = Task.Delay(timeout, cancellationTokenSource.Token);
                 if (await Task.WhenAny(readTask, delayTask).ConfigureAwait(false) == delayTask)
@@ -318,57 +319,55 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
 
-        if (disposing)
-        {
-            _logger.LogDebug("Disposing worker '{PipeName}'", PipeName);
+        if (!disposing) return;
+        _logger.LogDebug("Disposing worker '{PipeName}'", PipeName);
 
-            // Try graceful shutdown first
-            try
+        // Try graceful shutdown first
+        try
+        {
+            if (!_process.HasExited)
             {
-                if (!_process.HasExited)
+                var shutdownTask = SendShutdownAsync();
+                if (!shutdownTask.Wait(TimeSpan.FromSeconds(2)))
                 {
-                    var shutdownTask = SendShutdownAsync();
-                    if (!shutdownTask.Wait(TimeSpan.FromSeconds(2)))
-                    {
-                        _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 2 seconds", PipeName);
-                    }
+                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 2 seconds", PipeName);
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error sending shutdown to worker '{PipeName}'", PipeName);
-            }
+        }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error sending shutdown to worker '{PipeName}'", PipeName);
+        }
 
-            // Dispose managed resources
-            _sendLock.Dispose();
-            _reader.Dispose();
-            _writer.Dispose();
-            _pipe.Dispose();
+        // Dispose managed resources
+        _sendLock.Dispose();
+        _reader.Dispose();
+        _writer.Dispose();
+        _pipe.Dispose();
 
-            // Forcefully kill if still running
-            try
+        // Forcefully kill if still running
+        try
+        {
+            if (!_process.HasExited)
             {
-                if (!_process.HasExited)
-                {
-                    _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
+                _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
 #if NETSTANDARD2_0
                     _process.Kill();
 #else
-                    _process.Kill(true);
+                _process.Kill(true);
 #endif
-                    if (!_process.WaitForExit(1000))
-                    {
-                        _logger.LogWarning("Worker '{PipeName}' did not exit within 1 second after kill", PipeName);
-                    }
+                if (!_process.WaitForExit(1000))
+                {
+                    _logger.LogWarning("Worker '{PipeName}' did not exit within 1 second after kill", PipeName);
                 }
             }
-            catch (Exception ex)
-            {
-                _logger.LogDebug(ex, "Error killing worker '{PipeName}'", PipeName);
-            }
-
-            _process.Dispose();
         }
+        catch (Exception ex)
+        {
+            _logger.LogDebug(ex, "Error killing worker '{PipeName}'", PipeName);
+        }
+
+        _process.Dispose();
     }
     #endregion
 
