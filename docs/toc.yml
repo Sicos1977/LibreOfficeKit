@@ -1,4 +1,6 @@
-- name: LibreOfficeKit
+- name: Home
   href: index.md
+- name: Articles
+  href: articles/
 - name: API Reference
   href: api/
