@@ -186,3 +186,28 @@ internal delegate int LokDocSaveAsFunction(
 /// <returns>The document type as an integer (0 = text, 1 = spreadsheet, 2 = presentation, etc.).</returns>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate int LokDocGetDocumentTypeFunction(IntPtr pDocument);
+
+/// <summary>
+///     Delegate for <c>LibreOfficeKitClass.setOptionalFeatures</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="nFeatures">Bitmask of features to enable.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void LokSetOptionalFeaturesFunction(IntPtr pOffice, ulong nFeatures);
+
+/// <summary>
+///     Delegate for <c>LibreOfficeKitClass.setDocumentPassword</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="url">UTF-8 encoded string containing the document URL.</param>
+/// <param name="password">UTF-8 encoded string containing the password, or null to clear.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+#if NETSTANDARD2_0
+internal delegate void LokSetDocumentPasswordFunction(IntPtr pOffice, IntPtr pUrl, IntPtr pPassword);
+#else
+internal delegate void LokSetDocumentPasswordFunction(
+    IntPtr pOffice,
+    [MarshalAs(UnmanagedType.LPUTF8Str)] string url,
+    [MarshalAs(UnmanagedType.LPUTF8Str)] string? password);
+#endif
+

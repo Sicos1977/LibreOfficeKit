@@ -67,7 +67,9 @@ conversions, this project uses a **process pool** architecture:
 
 | File                       | Description                                            |
 |----------------------------|--------------------------------------------------------|
+| `CallbackType.cs`          | LibreOfficeKit event callback type classification      |
 | `DocumentType.cs`          | Document type classification (Writer, Calc, Impress …) |
+| `OptionalFeatures.cs`      | Optional feature flags (password support, annotations, etc.) |
 | `InitialView.cs`           | PDF initial viewer panel state                         |
 | `PdfACompliance.cs`        | PDF/A compliance level (None, 1b, 2b, 3b …)            |
 | `PdfChangePermission.cs`   | PDF change permission flags                            |
@@ -333,6 +335,83 @@ using the top-level `UseLosslessCompression`/`Quality` properties.
 | `PdfOptions.Screen`     | JPEG 85%, 150 DPI — small file size optimised for on-screen use    |
 | `PdfOptions.Print`      | JPEG 90%, 300 DPI — balanced quality for printing                  |
 | `PdfOptions.Archive`    | JPEG 90%, 300 DPI, tagged, PDF/A-2b — long-term archival           |
+
+## Advanced Features
+
+### Optional Features (LibreOffice 6.0+)
+
+LibreOfficeKit supports optional features that modify callback behavior and rendering. These are primarily useful for interactive viewers and collaborative editing scenarios.
+
+**Available Features:**
+
+| Feature | Description |
+|---------|-------------|
+| `DocumentPassword` | Enable password prompts for encrypted documents |
+| `DocumentPasswordToModify` | Enable password prompts for write-protected documents |
+| `PartInInvalidationCallback` | Include part number in tile invalidation callbacks |
+| `NoTiledAnnotations` | Disable annotation rendering (performance optimization) |
+| `RangeHeaders` | Enable range-based spreadsheet header queries |
+| `ViewIdInVisibleCursorInvalidationCallback` | Include view ID in cursor callbacks (multi-user) |
+
+**Example - Optimize for Conversion:**
+
+```csharp
+using LibreOfficeKit;
+using LibreOfficeKit.Enums;
+
+// Direct LOK instance (for advanced scenarios)
+var instance = Instance.Create(@"C:\Program Files\LibreOffice\program");
+
+// Disable annotation rendering for faster conversion
+instance.SetOptionalFeatures(OptionalFeatures.NoTiledAnnotations);
+
+var doc = instance.DocumentLoad(Instance.PathToFileUrl(@"C:\input.docx"));
+doc.SaveAs(Instance.PathToFileUrl(@"C:\output.pdf"), "pdf");
+doc.Dispose();
+instance.Dispose();
+```
+
+**Example - Password-Protected Documents:**
+
+```csharp
+var instance = Instance.Create(installPath);
+
+// Enable password features
+instance.SetOptionalFeatures(
+    OptionalFeatures.DocumentPassword | 
+    OptionalFeatures.DocumentPasswordToModify);
+
+// Pre-register password for a specific document
+var fileUrl = Instance.PathToFileUrl(@"C:\encrypted.docx");
+instance.SetDocumentPassword(fileUrl, "myPassword123");
+
+// Load will now use the password automatically
+var doc = instance.DocumentLoad(fileUrl);
+doc.SaveAs(outputUrl, "pdf");
+```
+
+📖 **See [OPTIONAL_FEATURES.md](LibreOfficeKit/OPTIONAL_FEATURES.md) for detailed documentation.**
+
+### Direct LibreOfficeKit Instance
+
+For advanced scenarios where you need direct control over LibreOfficeKit (without the worker pool), use `Instance` directly:
+
+```csharp
+using LibreOfficeKit;
+
+var installPath = Instance.FindInstallPath() 
+    ?? @"C:\Program Files\LibreOffice\program";
+
+using var instance = Instance.Create(installPath);
+
+var inputUrl = Instance.PathToFileUrl(@"C:\input.docx");
+var outputUrl = Instance.PathToFileUrl(@"C:\output.pdf");
+
+using var doc = instance.DocumentLoad(inputUrl);
+doc.SaveAs(outputUrl, "pdf");
+```
+
+⚠️ **Note:** Only one `Instance` can be active per process. Use `Converter` for concurrent conversions.
 
 ## Prerequisites
 
