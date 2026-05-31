@@ -1,5 +1,18 @@
 <Solution>
+  <Folder Name="/Docs/Articels/">
+    <File Path="Docs/articles/exception-handling.md" />
+    <File Path="Docs/articles/getting-started.md" />
+    <File Path="Docs/articles/index.md" />
+    <File Path="Docs/articles/optional-features.md" />
+    <File Path="Docs/articles/pdf-options.md" />
+    <File Path="Docs/articles/toc.yml" />
+  </Folder>
   <Folder Name="/Solution Items/" />
+  <Folder Name="/Docs/">
+    <File Path="Docs/docfx.json" />
+    <File Path="Docs/index.md" />
+    <File Path="Docs/toc.yml" />
+  </Folder>
   <Project Path="LibreOfficeKit.Console/LibreOfficeKit.Console.csproj" />
   <Project Path="LibreOfficeKit/LibreOfficeKit.csproj" />
   <Project Path="LibreOfficeTest/LibreOfficeTest.csproj" Id="a1eed037-91bb-4f3c-b321-f0b3eb03cdb4" />
