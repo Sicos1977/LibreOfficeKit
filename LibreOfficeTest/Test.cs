@@ -338,7 +338,10 @@ public class ConverterTests
     public async Task OdtWithPassword()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "An ODT document with password.pdf");
-        await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "An ODT document with password.odt"), outputFile);
+        await Assert.ThrowsAsync<FilePasswordProtectedException>(async () =>
+        {
+            await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "An ODT document with password.odt"), outputFile);
+        });
     }
     #endregion
     

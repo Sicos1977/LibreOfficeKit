@@ -537,10 +537,12 @@ internal class WorkerHandle : IAsyncDisposable
         {
             if (!_process.HasExited)
             {
-                await ShutdownAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
-                _process.Refresh();
-                if (!_process.HasExited)
-                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 5 seconds", PipeName);
+                var shutdown = await ShutdownAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                if (!shutdown && !_process.HasExited)
+                {
+                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request, killing it", PipeName);
+                    KillProcess(_process);
+                }
             }
         }
         catch (Exception exception)
@@ -580,8 +582,6 @@ internal class WorkerHandle : IAsyncDisposable
         await _writer.DisposeAsync().ConfigureAwait(false);
         await _pipe.DisposeAsync().ConfigureAwait(false);
 #endif
-
-        KillProcess(_process);
 
         GC.SuppressFinalize(this);
 
