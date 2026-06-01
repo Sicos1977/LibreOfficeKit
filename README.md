@@ -7,6 +7,10 @@ multi-process worker pool for safe concurrent conversions.
 
 [![NuGet](https://img.shields.io/nuget/v/LibreOfficeKit.svg?style=flat-square)](https://www.nuget.org/packages/LibreOfficeKit)
 
+# Using it on Windows
+
+At the moment this package does not work with Excel and Powerpoint files on Windows, I have raised a ticket for this --> https://bugs.documentfoundation.org/show_bug.cgi?id=172283
+
 ## Documentation
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://sicos1977.github.io/LibreOfficeKit)
