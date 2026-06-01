@@ -31,9 +31,16 @@ namespace LibreOfficeKit.Protocols;
 /// <summary>
 ///     Base class for all IPC messages sent from worker to host.
 /// </summary>
-[JsonDerivedType(typeof(ConvertResponse), "convertResult")]
-[JsonDerivedType(typeof(PongResponse), "pong")]
-[JsonDerivedType(typeof(ReadyResponse), "ready")]
-[JsonDerivedType(typeof(ErrorResponse), "error")]
-[JsonDerivedType(typeof(LogResponse), "log")]
-internal abstract class WorkerResponse;
+[JsonDerivedType(typeof(ConvertResponse), "convertResponse")]
+[JsonDerivedType(typeof(PongResponse), "pongResponse")]
+[JsonDerivedType(typeof(ReadyResponse), "readyResponse")]
+[JsonDerivedType(typeof(ErrorResponse), "errorResponse")]
+[JsonDerivedType(typeof(ShutdownResponse), "shutdownResponse")]
+[JsonDerivedType(typeof(LogResponse), "logResponse")]
+internal abstract class WorkerResponse
+{
+    /// <summary>
+    ///     Unique identifier matching the original request. Null for unsolicited responses (e.g., logs).
+    /// </summary>
+    public int? Id { get; set; }
+}

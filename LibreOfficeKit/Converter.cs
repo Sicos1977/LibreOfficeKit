@@ -73,7 +73,7 @@ namespace LibreOfficeKit;
 #if NETSTANDARD2_0
 public class Converter : IDisposable
 #else
-public class Converter : IDisposable, IAsyncDisposable
+public class Converter : IAsyncDisposable
 #endif
 {
     #region Fields
@@ -105,7 +105,7 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <summary>
     ///     Dictionary of all active workers keyed by pipe name.
     /// </summary>
-    private readonly ConcurrentDictionary<string, WorkerHandle> _allWorkers = new();
+    private readonly ConcurrentDictionary<string, WorkerHandle> _workers = [];
 
     /// <summary>
     ///     Semaphore controlling the maximum number of concurrent workers.
@@ -226,13 +226,11 @@ public class Converter : IDisposable, IAsyncDisposable
                     return;
                 }
 
-                _logger.LogError("Failed to spawn hot-standby worker {Index}/{Total}: Status={Status}, Result={Result}", 
-                    workerIndex + 1, minHotStandby, t.Status, t.Result);
+                _logger.LogError("Failed to spawn hot-standby worker {Index}/{Total}: Status={Status}, Result={Result}", workerIndex + 1, minHotStandby, t.Status, t.Result);
 
                 lock (_scaleLock)
-                {
                     _totalWorkerCount = Math.Max(0, _totalWorkerCount - 1);
-                }
+
             }, TaskScheduler.Default);
         }
 
@@ -278,12 +276,17 @@ public class Converter : IDisposable, IAsyncDisposable
     /// <exception cref="LibreOfficeKit.Exceptions.FilePasswordProtectedException">Thrown when the document is password-protected.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.FileTypeNotSupportedException">Thrown when the file type is not supported.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.ConversionFailedException">Thrown when the conversion fails.</exception>
+    /// <remarks>
+    ///     Default timeout is 60 minutes, which should be sufficient for even very large documents. Adjust as needed for your use case.
+    /// </remarks>
     public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
         if (timeout.HasValue && timeout.Value <= TimeSpan.Zero)
             throw new TimeoutException("Must be greater than zero.");
+
+        timeout ??= TimeSpan.FromMinutes(60);
 
         if (!File.Exists(inputFile))
             throw new FileNotFoundException("Input file not found.", inputFile);
@@ -297,18 +300,18 @@ public class Converter : IDisposable, IAsyncDisposable
         if (outputDir != null && !Directory.Exists(outputDir))
             Directory.CreateDirectory(outputDir);
 
-        DateTime? deadline = timeout.HasValue ? DateTime.UtcNow.Add(timeout.Value) : null;
+        DateTime? deadline = DateTime.UtcNow.Add(timeout.Value);
 
         await ExecuteOnWorkerAsync(async worker =>
         {
             _logger.LogDebug("Dispatching conversion to worker '{PipeName}'", worker.PipeName);
             var request = new ConvertRequest(inputFile, outputFile, options?.ToFilterOptions());
-            var requestTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : (TimeSpan?)null;
+            var requestTimeout = GetRemainingTimeout(deadline.Value);
 
-            if (requestTimeout.HasValue && requestTimeout.Value <= TimeSpan.Zero)
+            if (requestTimeout <= TimeSpan.Zero)
                 throw new TimeoutException("Conversion timed out.");
 
-            var response = await worker.SendRequestAsync<ConvertResponse>(request, requestTimeout).ConfigureAwait(false);
+            var response = await worker.ConvertAsync(request, requestTimeout).ConfigureAwait(false);
 
             if (!response.Success)
             {
@@ -385,7 +388,7 @@ public class Converter : IDisposable, IAsyncDisposable
     private async Task ExecuteOnWorkerAsync(Func<WorkerHandle, Task> action, DateTime? deadline = null)
     {
         WorkerHandle? worker = null;
-        bool workerFromWait = false;
+        var workerFromWait = false;
 
         try
         {
@@ -455,7 +458,7 @@ public class Converter : IDisposable, IAsyncDisposable
 
             if (!worker.IsAlive)
             {
-                RemoveWorker(worker);
+                await RemoveWorkerAsync(worker).ConfigureAwait(false);
                 await ExecuteOnWorkerAsync(action, deadline).ConfigureAwait(false);
                 return;
             }
@@ -484,7 +487,7 @@ public class Converter : IDisposable, IAsyncDisposable
             }
             else if (worker != null)
             {
-                RemoveWorker(worker);
+                await RemoveWorkerAsync(worker).ConfigureAwait(false);
                 // If we consumed a semaphore signal but the worker died, we need to release it back
                 if (workerFromWait)
                 {
@@ -513,6 +516,7 @@ public class Converter : IDisposable, IAsyncDisposable
         var defaultTimeout = TimeSpan.FromSeconds(30);
         var pipeName = $"lok_worker_{Guid.NewGuid():N}";
         var pipeServer = new NamedPipeServerStream(pipeName, PipeDirection.InOut, 1, PipeTransmissionMode.Byte, PipeOptions.Asynchronous);
+
         Process? process = null;
 
         _logger.LogDebug("Spawning worker process with pipe '{PipeName}'", pipeName);
@@ -523,19 +527,23 @@ public class Converter : IDisposable, IAsyncDisposable
             process = Process.Start(new ProcessStartInfo
             {
                 FileName = _workerExePath!,
-                Arguments = $"--worker {pipeName} --loglevel {(int)logLevel}",
-                UseShellExecute = false,
+                Arguments = $"--worker {pipeName} --loglevel {logLevel}",
                 CreateNoWindow = true,
+                UseShellExecute = false,
+                RedirectStandardError = true,
             }) ?? throw new ConversionFailedException("Failed to start worker process.");
 
             if (process.HasExited)
-                throw new ConversionFailedException("Failed to start worker process.");
+            {
+                var error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
+                throw new ConversionFailedException($"Failed to start worker process, error: '{error}'");
+            }
 
             var connectionTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : defaultTimeout;
             if (connectionTimeout <= TimeSpan.Zero) throw new TimeoutException("Conversion timed out.");
 
-            using var cts = new CancellationTokenSource(connectionTimeout);
-            await pipeServer.WaitForConnectionAsync(cts.Token).ConfigureAwait(false);
+            using var cancellationTokenSource = new CancellationTokenSource(connectionTimeout);
+            await pipeServer.WaitForConnectionAsync(cancellationTokenSource.Token).ConfigureAwait(false);
             _logger.LogInformation("Connected to pipe '{PipeName}'", pipeName);
 
             if (!pipeServer.IsConnected || process.HasExited)
@@ -545,45 +553,67 @@ public class Converter : IDisposable, IAsyncDisposable
             if (responseTimeout <= TimeSpan.Zero) throw new TimeoutException("Conversion timed out.");
 
             var handle = new WorkerHandle(pipeName, process, pipeServer, _logger);
-            var response = await handle.ReadResponseAsync(responseTimeout).ConfigureAwait(false);
+            var ready = await handle.ReadyAsync(responseTimeout).ConfigureAwait(false);
 
-            if (response is ReadyResponse)
+            if (ready)
             {
-                _allWorkers[pipeName] = handle;
+                _workers[pipeName] = handle;
                 handle.MarkIdle();
-                _logger.LogInformation("Worker spawned and ready: pipe '{PipeName}', PID '{Pid}'", pipeName,
-                    process.Id);
+                _logger.LogInformation("Worker spawned and ready: pipe '{PipeName}', PID '{Pid}'", pipeName, process.Id);
                 return handle;
             }
 
-            var error = response is ErrorResponse e ? e.Message : "Worker did not report ready.";
-            _logger.LogError("Worker init error on pipe '{PipeName}': '{Error}'", pipeName, error);
 #if NETSTANDARD2_0
-            handle.Dispose();
+            handle.DisposeAsync().GetAwaiter().GetResult();
 #else
-        await handle.DisposeAsync().ConfigureAwait(false);
+            await handle.DisposeAsync().ConfigureAwait(false);
 #endif
-            throw new ConversionFailedException(error);
+            throw new ConversionFailedException("Worker initialization failed.");
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            try
-            {
-                process?.Kill();
-            }
-            catch
-            {
-                /* ignored */
-            }
+            _logger.LogError("Worker init error on pipe '{PipeName}', Error: '{Error}'", pipeName, exception.Message);
+
+            KillProcess(process);
 #if NETSTANDARD2_0
             pipeServer.Dispose();
 #else
-        await pipeServer.DisposeAsync().ConfigureAwait(false);
+       //     await pipeServer.DisposeAsync().ConfigureAwait(false);
 #endif
-            if (ex is ConversionFailedException or TimeoutException) throw;
-            _logger.LogError(ex, "Failed to spawn worker for pipe '{PipeName}'", pipeName);
-            throw new ConversionFailedException("Failed to spawn worker.", ex);
+            if (exception is ConversionFailedException or TimeoutException) throw;
+            _logger.LogError(exception, "Failed to spawn worker for pipe '{PipeName}'", pipeName);
+            throw new ConversionFailedException("Failed to spawn worker.", exception);
         }
+    }
+    #endregion
+
+    #region KillProcess
+    /// <summary>
+    ///     Kills the given process, ignoring any exceptions that occur during killing. Used for cleanup of worker processes.
+    /// </summary>
+    /// <param name="process">The process to kill.</param>
+    private static void KillProcess(Process? process)
+    {
+        if (process == null) return;
+
+        try
+        {
+
+            if (!process.HasExited)
+            {
+#if NETSTANDARD2_0
+                process.Kill();
+#else
+                process.Kill(true);
+#endif
+            }
+        }
+        catch
+        {
+            /* ignored */
+        }
+
+        process.Dispose();
     }
     #endregion
 
@@ -625,20 +655,29 @@ public class Converter : IDisposable, IAsyncDisposable
     }
     #endregion
 
-    #region RemoveWorker
+    #region RemoveWorkerAsync
     /// <summary>
     ///     Removes a worker from the pool and disposes its resources.
     /// </summary>
     /// <param name="worker">The worker to remove.</param>
-    private void RemoveWorker(WorkerHandle worker)
+#if NETSTANDARD2_0
+    private Task RemoveWorkerAsync(WorkerHandle worker)
+#else
+    private async Task RemoveWorkerAsync(WorkerHandle worker)
+#endif
     {
-        _allWorkers.TryRemove(worker.PipeName, out _);
+        _workers.TryRemove(worker.PipeName, out _);
         lock (_scaleLock)
         {
             _totalWorkerCount = Math.Max(0, _totalWorkerCount - 1);
             _logger.LogDebug("Removing worker '{PipeName}' from pool (total remaining: {Total}).", worker.PipeName, _totalWorkerCount);
         }
-        worker.Dispose();
+#if NETSTANDARD2_0
+        worker.DisposeAsync().GetAwaiter().GetResult();
+        return Task.CompletedTask;
+#else
+        await worker.DisposeAsync().ConfigureAwait(false);
+#endif
     }
     #endregion
 
@@ -660,7 +699,7 @@ public class Converter : IDisposable, IAsyncDisposable
                 break;
             }
 
-            foreach (var kvp in _allWorkers)
+            foreach (var kvp in _workers)
             {
                 var worker = kvp.Value;
 
@@ -669,7 +708,7 @@ public class Converter : IDisposable, IAsyncDisposable
                 if (!worker.IsAlive)
                 {
                     _logger.LogWarning("Worker '{PipeName}' process died. Removing from pool.", worker.PipeName);
-                    RemoveWorker(worker);
+                    await RemoveWorkerAsync(worker).ConfigureAwait(false);
                     continue;
                 }
 
@@ -680,7 +719,7 @@ public class Converter : IDisposable, IAsyncDisposable
                     if (!pong)
                     {
                         _logger.LogWarning("Worker '{PipeName}' did not respond to ping. Recycling.", worker.PipeName);
-                        RemoveWorker(worker);
+                        await RemoveWorkerAsync(worker).ConfigureAwait(false);
                     }
                     else
                     {
@@ -690,7 +729,7 @@ public class Converter : IDisposable, IAsyncDisposable
                 catch (Exception exception)
                 {
                     _logger.LogError(exception, "Worker '{PipeName}' ping threw an exception. Recycling.", worker.PipeName);
-                    RemoveWorker(worker);
+                    await RemoveWorkerAsync(worker).ConfigureAwait(false);
                 }
             }
 
@@ -727,7 +766,7 @@ public class Converter : IDisposable, IAsyncDisposable
             var idleCount = 0;
             var workersToShutdown = new List<WorkerHandle>();
 
-            foreach (var kvp in _allWorkers)
+            foreach (var kvp in _workers)
             {
                 var worker = kvp.Value;
                 if (worker.IsBusy) continue;
@@ -739,7 +778,7 @@ public class Converter : IDisposable, IAsyncDisposable
             foreach (var worker in workersToShutdown)
             {
                 _logger.LogInformation("Shutting down idle worker '{PipeName}' (idle for {IdleSeconds:F0}s).", worker.PipeName, worker.IdleDuration.TotalSeconds);
-                RemoveWorker(worker);
+                await RemoveWorkerAsync(worker).ConfigureAwait(false);
             }
         }
     }
@@ -751,7 +790,7 @@ public class Converter : IDisposable, IAsyncDisposable
     ///     This prevents resource leaks and potential file locking issues.
     /// </summary>
     /// <param name="logger">Optional logger for diagnostics.</param>
-    private static void CleanupOrphanedWorkers(ILogger? logger = null)
+    internal static void CleanupOrphanedWorkers(ILogger? logger = null)
     {
         try
         {
@@ -796,8 +835,7 @@ public class Converter : IDisposable, IAsyncDisposable
     #region ResolveWorkerExePath
     /// <summary>
     ///     Resolves the path to the worker console executable.
-    ///     Tries to locate LibreOfficeKit.Console in the same directory as the entry assembly,
-    ///     then falls back to using 'dotnet' with the assembly path.
+    ///     Tries to locate LibreOfficeKit.Console in the same directory as the entry assembly
     /// </summary>
     /// <returns>The worker executable path string.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the path cannot be determined.</exception>
@@ -816,7 +854,7 @@ public class Converter : IDisposable, IAsyncDisposable
         var currentExeName = Path.GetFileNameWithoutExtension(entryLocation);
 
         // If running the console app directly, use it
-        if (currentExeName.Equals("LibreOfficeKit.Console", StringComparison.OrdinalIgnoreCase))
+        if (currentExeName.Equals("LibreOfficeKit.Console.exe", StringComparison.OrdinalIgnoreCase))
             return entryLocation;
 
         // Look for console app in the same directory
@@ -869,17 +907,15 @@ public class Converter : IDisposable, IAsyncDisposable
     public void Dispose()
     {
         if (_disposed) return;
-        _logger.LogInformation("Disposing converter (synchronous), shutting down {Count} worker(s)", _allWorkers.Count);
+        _logger.LogInformation("Disposing converter (synchronous), shutting down {Count} worker(s)", _workers.Count);
 
         _cancellationTokenSource.Cancel();
 
-        foreach (var kvp in _allWorkers)
+        foreach (var kvp in _workers)
         {
             try
             {
-                _logger.LogDebug("Disposing worker '{PipeName}'", kvp.Key);
-                kvp.Value.Dispose();
-                _logger.LogDebug("Worker '{PipeName}' disposed", kvp.Key);
+                kvp.Value.DisposeAsync().GetAwaiter().GetResult();
             }
             catch (Exception exception)
             {
@@ -887,7 +923,7 @@ public class Converter : IDisposable, IAsyncDisposable
             }
         }
 
-        _allWorkers.Clear();
+        _workers.Clear();
 
         var timeout = TimeSpan.FromSeconds(5);
         try
@@ -924,18 +960,16 @@ public class Converter : IDisposable, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         if (_disposed) return;
-        _logger.LogInformation("Disposing converter (asynchronous), shutting down {Count} worker(s)", _allWorkers.Count);
-        var timeout = TimeSpan.FromSeconds(5);
+        _logger.LogInformation("Disposing converter (asynchronous), shutting down {Count} worker(s)", _workers.Count);
+        var timeout = TimeSpan.FromSeconds(60);
 
         await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
 
-        var shutdownTasks = _allWorkers.Select(kvp => Task.Run(async () =>
+        var shutdownTasks = _workers.Select(kvp => Task.Run(async () =>
             {
                 try
                 {
-                    _logger.LogDebug("Disposing worker '{PipeName}'", kvp.Key);
                     await kvp.Value.DisposeAsync().ConfigureAwait(false);
-                    _logger.LogDebug("Worker '{PipeName}' disposed", kvp.Key);
                 }
                 catch (Exception exception)
                 {
@@ -962,7 +996,7 @@ public class Converter : IDisposable, IAsyncDisposable
                 .ConfigureAwait(false);
         }
 
-        _allWorkers.Clear();
+        _workers.Clear();
 
         try
         {

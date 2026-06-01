@@ -24,11 +24,13 @@
 // THE SOFTWARE.
 //
 
-using LibreOfficeKit.Protocols;
-using Microsoft.Extensions.Logging;
-using System.IO.Pipes;
 using LibreOfficeKit.Enums;
 using LibreOfficeKit.Logging;
+using LibreOfficeKit.Protocols;
+using Microsoft.Extensions.Logging;
+using System.Diagnostics;
+using System.IO.Pipes;
+using System.Runtime.InteropServices;
 
 // ReSharper disable UnusedMember.Global
 
@@ -50,11 +52,10 @@ public static class WorkerProcess
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
     public static async Task<int> RunAsync(string pipeName, LogLevel logLevel = LogLevel.None)
     {
-#if NETSTANDARD2_0
-        using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-#else
-        await using var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
-#endif
+        if (File.Exists("d:\\log.txt"))
+            File.Delete("d:\\log.txt");
+
+        var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         try
         {
@@ -65,19 +66,14 @@ public static class WorkerProcess
             return 1;
         }
 
-#if NETSTANDARD2_0
-        using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, true);
-        using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true);
-#else
-        using var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, true);
-        await using var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true);
-#endif
-        writer.AutoFlush = true;
-
-        // Now that we have the pipe connected, create the logger
+        var reader = new StreamReader(pipeClient, System.Text.Encoding.UTF8, false, 4096, true);
+        var writer = new StreamWriter(pipeClient, System.Text.Encoding.UTF8, 4096, true) { AutoFlush = true };
+        
         ILogger logger = new PipeLogger("WorkerProcess", writer, logLevel);
 
         Instance? office;
+
+        var stopwatch = Stopwatch.StartNew();
 
         try
         {
@@ -86,24 +82,26 @@ public static class WorkerProcess
             if (installPath == null)
             {
                 logger.LogError("LibreOffice installation not found");
-                await SendAsync(writer, new ErrorResponse("LibreOffice installation not found.")).ConfigureAwait(false);
+                await SendAsync(writer, new ErrorResponse("LibreOffice installation not found."), 0).ConfigureAwait(false);
                 return 1;
             }
 
             logger.LogDebug("Found LibreOffice at '{InstallPath}'", installPath);
-            office = Instance.Create(installPath);
-            logger.LogInformation("LibreOffice initialized successfully");
-            await SendAsync(writer, new ReadyResponse()).ConfigureAwait(false);
+            office = Instance.Create(installPath, logger);
+            stopwatch.Stop();
+            logger.LogInformation("LibreOffice initialized successfully in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Failed to initialize LibreOffice");
-            await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'")).ConfigureAwait(false);
+            await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'"), 0).ConfigureAwait(false);
             return 1;
         }
 
         try
         {
+            logger.LogInformation("Waiting for requests...");
+
             while (true)
             {
                 var line = await reader.ReadLineAsync().ConfigureAwait(false);
@@ -111,49 +109,44 @@ public static class WorkerProcess
                 if (string.IsNullOrWhiteSpace(line))
                     continue;
 
-                logger.LogDebug("Received line: {Line}", line);
-
-                WorkerRequest? request;
-                try
-                {
-                    request = IpcSerializer.Deserialize<WorkerRequest>(line);
-                }
-                catch
-                {
-                    continue;
-                }
-
-                if (request == null)
-                    continue;
+                var request = IpcSerializer.Deserialize<WorkerRequest>(line);
 
                 switch (request)
                 {
                     case PingRequest:
-                        logger.LogDebug("Received ping, sending pong");
-                        await SendAsync(writer, new PongResponse()).ConfigureAwait(false);
+                        await SendAsync(writer, new PongResponse(), request.Id).ConfigureAwait(false);
                         break;
 
                     case ConvertRequest convert:
-                        logger.LogInformation("Received conversion request: '{InputFile}' -> '{OutputFile}'", convert.InputFile, convert.OutputFile);
                         await HandleConvertAsync(office, convert, writer, logger).ConfigureAwait(false);
                         break;
 
+                    case ReadyRequest:
+                        await SendAsync(writer, new ReadyResponse(), request.Id).ConfigureAwait(false);
+                        break;
+
                     case ShutdownRequest:
-                        logger.LogInformation("Received shutdown request. Exiting.");
-                        await SendAsync(writer, new PongResponse()).ConfigureAwait(false);
-                        return 0;
+                        await SendAsync(writer, new ShutdownResponse(), request.Id).ConfigureAwait(false);
+                        return 0; // Exit loop
 
                     default:
-                        logger.LogWarning("Received unknown request type: {RequestType}", request.GetType().Name);
-                        break;
+                        throw new Exception($"Received unknown request type: '{request?.GetType().Name}'");
                 }
             }
         }
         finally
         {
             office.Dispose();
+#if NETSTANDARD2_0
             pipeClient.Flush();
-            pipeClient.WaitForPipeDrain();
+            pipeClient.Dispose();
+            writer.Dispose();
+#else
+            await pipeClient.FlushAsync().ConfigureAwait(false);
+            await pipeClient.DisposeAsync().ConfigureAwait(false);
+            await writer.DisposeAsync().ConfigureAwait(false);
+#endif
+            reader.Dispose();
         }
     }
     #endregion
@@ -168,7 +161,7 @@ public static class WorkerProcess
     /// <param name="logger">The logger for logging messages.</param>
     private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer, ILogger logger)
     {
-        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        var stopwatch = Stopwatch.StartNew();
 
         try
         {
@@ -186,29 +179,29 @@ public static class WorkerProcess
             if (success)
             {
                 logger.LogInformation("Conversion succeeded: '{OutputFile}' (total time: {TotalMs} ms)", request.OutputFile, stopwatch.ElapsedMilliseconds);
-                await SendAsync(writer, new ConvertResponse(true)).ConfigureAwait(false);
+                await SendAsync(writer, new ConvertResponse(true), request.Id).ConfigureAwait(false);
             }
             else
             {
                 var error = office.GetError();
                 logger.LogError("Conversion failed for '{InputFile}': '{Error}' (total time: {TotalMs} ms)", request.InputFile, error ?? "SaveAs returned failure.", stopwatch.ElapsedMilliseconds);
-                await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure.")).ConfigureAwait(false);
+                await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure."), request.Id).ConfigureAwait(false);
             }
         }
         catch (Exceptions.FilePasswordProtectedException exception)
         {
             logger.LogError(exception, "Document is password-protected: '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
-            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FilePasswordProtectedException))).ConfigureAwait(false);
+            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FilePasswordProtectedException)), request.Id).ConfigureAwait(false);
         }
         catch (Exceptions.FileTypeNotSupportedException exception)
         {
             logger.LogError(exception, "File type not supported for '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
-            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FileTypeNotSupportedException))).ConfigureAwait(false);
+            await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FileTypeNotSupportedException)), request.Id).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
             logger.LogError(exception, "Exception during conversion of '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
-            await SendAsync(writer, new ConvertResponse(false, exception.Message)).ConfigureAwait(false);
+            await SendAsync(writer, new ConvertResponse(false, exception.Message), request.Id).ConfigureAwait(false);
         }
     }
     #endregion
@@ -219,8 +212,10 @@ public static class WorkerProcess
     /// </summary>
     /// <param name="writer">The stream writer for the named pipe.</param>
     /// <param name="response">The response message to send.</param>
-    private static async Task SendAsync(StreamWriter writer, WorkerResponse response)
+    /// <param name="requestId">The request ID associated with the response.</param>
+    private static async Task SendAsync(StreamWriter writer, WorkerResponse response, int requestId)
     {
+        response.Id = requestId;
         var json = IpcSerializer.Serialize(response);
         await writer.WriteLineAsync(json).ConfigureAwait(false);
         await writer.FlushAsync().ConfigureAwait(false);

@@ -8,20 +8,6 @@ namespace LibreOfficeKit.Logging;
 /// </summary>
 internal sealed class PipeLogger(string categoryName, StreamWriter writer, LogLevel minLogLevel = LogLevel.Information) : ILogger
 {
-    #region Fields
-#if NETSTANDARD2_0
-    /// <summary>
-    ///     Lock for thread-safe writing
-    /// </summary>
-    private readonly object _lock = new();
-#else
-    /// <summary>
-    ///     Lock for thread-safe writing
-    /// </summary>
-    private readonly Lock _lock = new();
-#endif
-    #endregion
-
     #region ILogger Implementation
     /// <inheritdoc />
     public IDisposable? BeginScope<TState>(TState state) where TState : notnull => null;
@@ -41,20 +27,15 @@ internal sealed class PipeLogger(string categoryName, StreamWriter writer, LogLe
 
         WorkerResponse logResponse = new LogResponse(logLevel, fullMessage, exceptionText);
 
-        // Serialize and send asynchronously but without blocking the logger
-        // We use lock to ensure messages are sent in order
-        lock (_lock)
+        try
         {
-            try
-            {
-                var json = IpcSerializer.Serialize(logResponse);
-                writer.WriteLine(json);
-                writer.Flush();
-            }
-            catch
-            {
-                // Ignore errors when sending log messages to avoid infinite loops
-            }
+            var json = IpcSerializer.Serialize(logResponse);
+            writer.WriteLine(json);
+            writer.Flush();
+        }
+        catch 
+        {
+            // Ignore
         }
     }
     #endregion

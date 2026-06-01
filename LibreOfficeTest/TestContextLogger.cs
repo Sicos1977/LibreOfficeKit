@@ -57,9 +57,8 @@ internal sealed class TestContextLogger(string categoryName) : ILogger
         };
 
         var logMessage = $"[{level}] {categoryName}: {message}";
-        Debug.WriteLine(logMessage);
-        if (exception == null) return;
-        var exceptionText = exception.ToString();
-        Debug.WriteLine(exceptionText);
+        Console.Out.WriteLine(logMessage);
+        if (exception != null)
+            Console.Out.WriteLine( exception.ToString());
     }
 }

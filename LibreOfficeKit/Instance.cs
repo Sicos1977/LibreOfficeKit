@@ -201,9 +201,6 @@ public sealed class Instance : IDisposable
     {
         var callbackType = (CallbackType)type;
 
-        // Log the event
-       // _logger?.LogDebug("[LOK Event] Type: '{Type}' ({TypeId}) | Payload: '{Payload}'", callbackType, type, payload);
-
         switch (callbackType)
         {
             case CallbackType.Error:
@@ -285,8 +282,6 @@ public sealed class Instance : IDisposable
     public static Instance Create(string installPath, ILogger? logger = null)
     {
         _logger = logger;
-
-        _logger?.LogInformation("Initializing LibreOffice...");
 
         if (_instanceActive)
             throw new InvalidOperationException("Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
@@ -655,10 +650,7 @@ public sealed class Instance : IDisposable
         var initError = instance.GetError();
         if (initError == null)
         {
-            // Log version information
             instance.LogVersionInfo();
-
-            _logger?.LogInformation("LibreOffice initialized");
             return instance;
         }
 
@@ -704,7 +696,8 @@ public sealed class Instance : IDisposable
             }
 
             // Parse JSON to version info object
-            var versionInfo = JsonSerializer.Deserialize<LibreOfficeVersionInfo>(versionInfoJson);
+            // ReSharper disable once RedundantSuppressNullableWarningExpression
+            var versionInfo = JsonSerializer.Deserialize<LibreOfficeVersionInfo>(versionInfoJson!);
             if (versionInfo == null)
             {
                 _logger?.LogWarning("Failed to parse version info JSON: '{VersionInfoJson}'", versionInfoJson);

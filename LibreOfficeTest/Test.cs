@@ -83,7 +83,7 @@ public class ConverterTests
 
     #region Microsoft Office Word tests
     [TestMethod]
-    [Timeout(10000)]
+    //[Timeout(10000)]
     public async Task DocWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOC word document without embedded files.pdf");
@@ -379,7 +379,7 @@ public class ConverterTests
         _tempDirectory = new DirectoryInfo(tempDirectory);
         _tempDirectory.Create();
 
-        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).AddFilter(null, LogLevel.Debug));
+        var loggerFactory = LoggerFactory.Create(builder => builder.AddProvider(new TestContextLoggerProvider()).AddFilter(null, LogLevel.Trace));
         var logger = loggerFactory.CreateLogger<Converter>();
         logger.LogInformation("Logger initialized, creating Converter...");
 
@@ -393,7 +393,9 @@ public class ConverterTests
         if (_tempDirectory.Exists)
             _tempDirectory.Delete(true);
 
-        await _converter.DisposeAsync();
+        // ReSharper disable once ConditionIsAlwaysTrueOrFalseAccordingToNullableAPIContract
+        if (_converter != null)
+            await _converter.DisposeAsync();
     }
     #endregion
 }

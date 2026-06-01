@@ -29,6 +29,4 @@ namespace LibreOfficeKit.Protocols;
 /// <summary>
 ///     Health check ping — worker should respond with <see cref="PongResponse" />.
 /// </summary>
-internal sealed class PingRequest : WorkerRequest
-{
-}
+internal sealed class PingRequest : WorkerRequest;

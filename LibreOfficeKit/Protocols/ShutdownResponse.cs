@@ -1,5 +1,5 @@
 //
-// ShutdownRequest.cs
+// ShutdownResponse.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -27,6 +27,6 @@
 namespace LibreOfficeKit.Protocols;
 
 /// <summary>
-///     Graceful shutdown request — worker should clean up and exit.
+///     Response to a <see cref="ShutdownRequest" />.
 /// </summary>
-internal sealed class ShutdownRequest : WorkerRequest;
+internal sealed class ShutdownResponse : WorkerResponse;

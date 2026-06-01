@@ -29,6 +29,4 @@ namespace LibreOfficeKit.Protocols;
 /// <summary>
 ///     Sent by the worker after successful initialization (LibreOfficeKit loaded).
 /// </summary>
-internal sealed class ReadyResponse : WorkerResponse
-{
-}
+internal sealed class ReadyResponse : WorkerResponse;

@@ -95,6 +95,17 @@ internal delegate void LokPreinitFunction(
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void LokDestroyFunction(IntPtr pOffice);
 
+
+#if NETSTANDARD2_0
+/// <summary>
+///     Delegate for <c>LibreOfficeKitClass.documentLoad</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="pUrl">Pointer to a UTF-8 encoded string containing the document URL to load.</param>
+/// <returns>Pointer to the loaded LibreOfficeKitDocument, or IntPtr.Zero on failure.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate IntPtr LokDocumentLoadFunction(IntPtr pOffice, IntPtr pUrl);
+#else
 /// <summary>
 ///     Delegate for <c>LibreOfficeKitClass.documentLoad</c>.
 /// </summary>
@@ -102,12 +113,20 @@ internal delegate void LokDestroyFunction(IntPtr pOffice);
 /// <param name="url">UTF-8 encoded string containing the document URL to load.</param>
 /// <returns>Pointer to the loaded LibreOfficeKitDocument, or IntPtr.Zero on failure.</returns>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-#if NETSTANDARD2_0
-internal delegate IntPtr LokDocumentLoadFunction(IntPtr pOffice, IntPtr pUrl);
-#else
 internal delegate IntPtr LokDocumentLoadFunction(IntPtr pOffice, [MarshalAs(UnmanagedType.LPUTF8Str)] string url);
 #endif
 
+#if NETSTANDARD2_0
+/// <summary>
+///     Delegate for <c>LibreOfficeKitClass.documentLoadWithOptions</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="pUrl">Pointer to a UTF-8 encoded string containing the document URL to load.</param>
+/// <param name="pOptions">Pointer to a UTF-8 encoded string containing load options, or null.</param>
+/// <returns>Pointer to the loaded LibreOfficeKitDocument, or IntPtr.Zero on failure.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate IntPtr LokDocumentLoadWithOptionsFunction(IntPtr pOffice, IntPtr pUrl, IntPtr pOptions);
+#else
 /// <summary>
 ///     Delegate for <c>LibreOfficeKitClass.documentLoadWithOptions</c>.
 /// </summary>
@@ -116,9 +135,6 @@ internal delegate IntPtr LokDocumentLoadFunction(IntPtr pOffice, [MarshalAs(Unma
 /// <param name="options">UTF-8 encoded string containing load options, or null.</param>
 /// <returns>Pointer to the loaded LibreOfficeKitDocument, or IntPtr.Zero on failure.</returns>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-#if NETSTANDARD2_0
-internal delegate IntPtr LokDocumentLoadWithOptionsFunction(IntPtr pOffice, IntPtr pUrl, IntPtr pOptions);
-#else
 internal delegate IntPtr LokDocumentLoadWithOptionsFunction(
     IntPtr pOffice,
     [MarshalAs(UnmanagedType.LPUTF8Str)] string url,
@@ -160,6 +176,18 @@ internal delegate string? LokGetVersionInfoFunction(IntPtr pOffice);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void LokDocDestroyFunction(IntPtr pDocument);
 
+#if NETSTANDARD2_0
+/// <summary>
+///     Delegate for <c>LibreOfficeKitDocumentClass.saveAs</c>.
+/// </summary>
+/// <param name="pDocument">Pointer to the LibreOfficeKitDocument instance.</param>
+/// <param name="pUrl">UTF-8 encoded string containing the output file URL.</param>
+/// <param name="pFormat">UTF-8 encoded string containing the output format (e.g., "pdf").</param>
+/// <param name="pFilterOptions">UTF-8 encoded string containing filter options, or null.</param>
+/// <returns>1 on success, 0 on failure.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int LokDocSaveAsFunction(IntPtr pDocument, IntPtr pUrl, IntPtr pFormat, IntPtr pFilterOptions);
+#else
 /// <summary>
 ///     Delegate for <c>LibreOfficeKitDocumentClass.saveAs</c>.
 /// </summary>
@@ -169,9 +197,6 @@ internal delegate void LokDocDestroyFunction(IntPtr pDocument);
 /// <param name="filterOptions">UTF-8 encoded string containing filter options, or null.</param>
 /// <returns>1 on success, 0 on failure.</returns>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-#if NETSTANDARD2_0
-internal delegate int LokDocSaveAsFunction(IntPtr pDocument, IntPtr pUrl, IntPtr pFormat, IntPtr pFilterOptions);
-#else
 internal delegate int LokDocSaveAsFunction(
     IntPtr pDocument,
     [MarshalAs(UnmanagedType.LPUTF8Str)] string url,
@@ -195,6 +220,16 @@ internal delegate int LokDocGetDocumentTypeFunction(IntPtr pDocument);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void LokSetOptionalFeaturesFunction(IntPtr pOffice, ulong nFeatures);
 
+#if NETSTANDARD2_0
+/// <summary>
+///     Delegate for <c>LibreOfficeKitClass.setDocumentPassword</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="pUrl">Pointer to a UTF-8 encoded string containing the document URL.</param>
+/// <param name="pPassword">Pointer to a UTF-8 encoded string containing the password, or null to clear.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void LokSetDocumentPasswordFunction(IntPtr pOffice, IntPtr pUrl, IntPtr pPassword);
+#else
 /// <summary>
 ///     Delegate for <c>LibreOfficeKitClass.setDocumentPassword</c>.
 /// </summary>
@@ -202,9 +237,6 @@ internal delegate void LokSetOptionalFeaturesFunction(IntPtr pOffice, ulong nFea
 /// <param name="url">UTF-8 encoded string containing the document URL.</param>
 /// <param name="password">UTF-8 encoded string containing the password, or null to clear.</param>
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
-#if NETSTANDARD2_0
-internal delegate void LokSetDocumentPasswordFunction(IntPtr pOffice, IntPtr pUrl, IntPtr pPassword);
-#else
 internal delegate void LokSetDocumentPasswordFunction(
     IntPtr pOffice,
     [MarshalAs(UnmanagedType.LPUTF8Str)] string url,

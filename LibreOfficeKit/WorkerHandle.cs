@@ -38,38 +38,72 @@ namespace LibreOfficeKit;
 ///     Represents a handle to a single LibreOffice worker process,
 ///     encapsulating its OS process, named pipe, and communication channels.
 /// </summary>
-#if NETSTANDARD2_0
-internal class WorkerHandle : IDisposable
-#else
-internal class WorkerHandle : IDisposable, IAsyncDisposable
-#endif
+internal class WorkerHandle : IAsyncDisposable
 {
     #region Fields
-    /// <summary>The OS process running the worker.</summary>
+    /// <summary>
+    ///     The OS process running the worker.
+    /// </summary>
     private readonly Process _process;
 
-    /// <summary>The named pipe server stream for IPC.</summary>
+    /// <summary>
+    ///     The named pipe server stream for IPC.
+    /// </summary>
     private readonly NamedPipeServerStream _pipe;
 
-    /// <summary>Stream reader for receiving messages from the worker.</summary>
+    /// <summary>
+    ///     Stream reader for receiving messages from the worker.
+    /// </summary>
     private readonly StreamReader _reader;
 
-    /// <summary>Stream writer for sending messages to the worker.</summary>
+    /// <summary>
+    ///     Stream writer for sending messages to the worker.
+    /// </summary>
     private readonly StreamWriter _writer;
 
-    /// <summary>Semaphore ensuring only one request is sent at a time.</summary>
-    private readonly SemaphoreSlim _sendLock = new(1, 1);
+    /// <summary>
+    ///     The current message id
+    /// </summary>
+    private int _messageId;
 
-    /// <summary>Indicates whether the worker is currently processing a request.</summary>
+    /// <summary>
+    ///     Dictionary tracking pending requests by their RequestId.
+    /// </summary>
+    private readonly System.Collections.Concurrent.ConcurrentDictionary<int, PendingRequest> _pendingRequests = new();
+
+    /// <summary>
+    ///     Background task that continuously reads responses from the pipe.
+    /// </summary>
+    private readonly Task _responseReaderTask;
+
+    /// <summary>
+    ///     Background task that monitors pending request timeouts.
+    /// </summary>
+    private readonly Task _timeoutMonitorTask;
+
+    /// <summary>
+    ///     Cancellation token source for stopping the response reader task.
+    /// </summary>
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
+
+    /// <summary>
+    ///     Indicates whether the worker is currently processing a request.
+    /// </summary>
     private volatile bool _isBusy;
 
-    /// <summary>The timestamp when the worker last became idle.</summary>
+    /// <summary>
+    ///     The timestamp when the worker last became idle.
+    /// </summary>
     private DateTime _idleSince;
 
-    /// <summary>Indicates whether the worker has been disposed.</summary>
+    /// <summary>
+    ///     Indicates whether the worker has been disposed.
+    /// </summary>
     private bool _disposed;
 
-    /// <summary>Logger for this worker handle.</summary>
+    /// <summary>
+    ///     Logger for this worker handle.
+    /// </summary>
     private readonly ILogger _logger;
     #endregion
 
@@ -95,6 +129,41 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
     public TimeSpan IdleDuration => _isBusy ? TimeSpan.Zero : DateTime.UtcNow - _idleSince;
     #endregion
 
+    #region Private Class PendingRequest
+    /// <summary>
+    ///     Represents a pending request awaiting a response from the worker.
+    /// </summary>
+    private class PendingRequest
+    {
+        /// <summary>
+        ///     Gets the TaskCompletionSource that will be completed when the response arrives.
+        /// </summary>
+        public TaskCompletionSource<WorkerResponse> TaskCompletionSource { get; }
+
+        /// <summary>
+        ///     Gets the deadline after which the request should timeout.
+        /// </summary>
+        public DateTime Deadline { get; }
+
+        /// <summary>
+        ///     Gets the type of request (for logging).
+        /// </summary>
+        public string RequestType { get; }
+
+        /// <summary>
+        ///     Initializes a new instance of <see cref="PendingRequest"/>.
+        /// </summary>
+        /// <param name="requestType">The type of request.</param>
+        /// <param name="timeout">The timeout duration.</param>
+        public PendingRequest(string requestType, TimeSpan timeout)
+        {
+            TaskCompletionSource = new TaskCompletionSource<WorkerResponse>(TaskCreationOptions.RunContinuationsAsynchronously);
+            Deadline = DateTime.UtcNow.Add(timeout);
+            RequestType = requestType;
+        }
+    }
+    #endregion
+
     #region Constructor
     /// <summary>
     ///     Initializes a new instance of <see cref="WorkerHandle" /> for the given worker process and pipe.
@@ -112,6 +181,9 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
         _writer = new StreamWriter(pipe, Encoding.UTF8, 4096, true);
         _idleSince = DateTime.UtcNow;
         _logger = logger ?? NullLogger.Instance;
+
+        _responseReaderTask = Task.Run(() => ResponseReaderLoopAsync(_cancellationTokenSource.Token));
+        _timeoutMonitorTask = Task.Run(() => TimeoutMonitorLoopAsync(_cancellationTokenSource.Token));
     }
     #endregion
 
@@ -138,7 +210,7 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
 
     #region SendRequestAsync
     /// <summary>
-    ///     Sends a request to the worker and reads the typed response.
+    ///     Sends a request to the worker and awaits the typed response via callback.
     /// </summary>
     /// <typeparam name="T">The expected response type.</typeparam>
     /// <param name="request">The request to send.</param>
@@ -149,90 +221,172 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
     /// <remarks>
     ///     Default timeout is 5 minutes
     /// </remarks>
-    public async Task<T> SendRequestAsync<T>(WorkerRequest request, TimeSpan? timeout = null) where T : WorkerResponse
+    private async Task<T> SendRequestAsync<T>(WorkerRequest request, TimeSpan timeout) where T : WorkerResponse
     {
-        timeout ??= TimeSpan.FromMinutes(5);
+        _messageId += 1;
+        request.Id = _messageId;
 
-        await _sendLock.WaitAsync().ConfigureAwait(false);
+        var pending = new PendingRequest(request.GetType().Name, timeout);
+
+        if (!_pendingRequests.TryAdd(request.Id, pending))
+        {
+            throw new InvalidOperationException($"Duplicate request id '{request.Id}'");
+        }
+
         try
         {
-            _logger.LogTrace("Sending {RequestType} to worker '{PipeName}'", request.GetType().Name, PipeName);
+            _logger.LogTrace("Sending '{RequestType}' to worker '{PipeName}' with RequestId '{RequestId}'", request.GetType().Name, PipeName, request.Id);
             var json = IpcSerializer.Serialize(request);
             await _writer.WriteLineAsync(json).ConfigureAwait(false);
             await _writer.FlushAsync().ConfigureAwait(false);
-            var response = await ReadResponseAsync(timeout.Value).ConfigureAwait(false);
+
+            // Wait for the response via callback (TaskCompletionSource)
+            using var cancellationTokenSource = new CancellationTokenSource(timeout);
+#if NETSTANDARD2_0
+            using var registration = cancellationTokenSource.Token.Register(() =>
+#else
+            await using var registration = cancellationTokenSource.Token.Register(() =>
+#endif
+            {
+                if (_pendingRequests.TryRemove(request.Id, out var timedOutPending))
+                    timedOutPending.TaskCompletionSource.TrySetException(new TimeoutException($"Worker did not respond to '{timedOutPending.RequestType}' within {timeout}"));
+            });
+
+            var response = await pending.TaskCompletionSource.Task.ConfigureAwait(false);
 
             switch (response)
             {
                 case T typed:
-                    _logger.LogTrace("Received {ResponseType} from worker '{PipeName}'", typeof(T).Name, PipeName);
+                    _logger.LogTrace("Received '{ResponseType}' from worker '{PipeName}' for RequestId '{RequestId}'", typeof(T).Name, PipeName, request.Id);
                     return typed;
-                case ErrorResponse err:
-                    _logger.LogError("Worker '{PipeName}' returned error: {Error}", PipeName, err.Message);
-                    throw new ConversionFailedException($"Worker error: {err.Message}");
+
+                case ErrorResponse errorResponse:
+                    _logger.LogError("Worker '{PipeName}' returned error for RequestId '{RequestId}': '{Error}'", PipeName, request.Id, errorResponse.Message);
+                    throw new ConversionFailedException($"Worker error: {errorResponse.Message}");
+
                 default:
-                    _logger.LogError("Unexpected response type '{ResponseType}' from worker '{PipeName}'", response?.GetType().Name ?? "null", PipeName);
-                    throw new ConversionFailedException($"Unexpected response type: {response?.GetType().Name ?? "null"}");
+                    _logger.LogError("Unexpected response type '{ResponseType}' from worker '{PipeName}' for RequestId '{RequestId}'", response.GetType().Name, PipeName, request.Id);
+                    throw new ConversionFailedException($"Unexpected response type: {response.GetType().Name}");
             }
         }
         finally
         {
-            _sendLock.Release();
+            _pendingRequests.TryRemove(request.Id, out _);
         }
     }
     #endregion
 
-    #region ReadResponseAsync
+    #region ResponseReaderLoopAsync
     /// <summary>
-    ///     Reads a single response from the worker with a timeout.
-    ///     Automatically processes and logs any <see cref="LogResponse"/> messages,
-    ///     then continues reading until a non-log response is received.
+    ///     Background task that continuously reads responses from the pipe and completes callbacks.
     /// </summary>
-    /// <param name="timeout">Maximum time to wait for a response.</param>
-    /// <returns>The deserialized response, or <c>null</c> if the pipe was closed.</returns>
-    /// <exception cref="System.TimeoutException">Thrown when the worker does not respond in time.</exception>
-    public async Task<WorkerResponse?> ReadResponseAsync(TimeSpan timeout)
+    /// <param name="cancellationToken">Cancellation token to stop the reader.</param>
+    private async Task ResponseReaderLoopAsync(CancellationToken cancellationToken)
     {
-        using var cancellationTokenSource = new CancellationTokenSource(timeout);
-
-        while (true)
+        try
         {
-            try
+            while (!cancellationToken.IsCancellationRequested && !_disposed)
             {
-                // ReSharper disable once MethodSupportsCancellation
-                var readTask = _reader.ReadLineAsync();
-                var delayTask = Task.Delay(timeout, cancellationTokenSource.Token);
-                if (await Task.WhenAny(readTask, delayTask).ConfigureAwait(false) == delayTask)
-                    throw new TimeoutException("Worker did not respond in time.");
-
-                var line = await readTask.ConfigureAwait(false);
-
-                if (line == null)
-                    return null;
-
-                _logger.LogTrace("[Worker '{PipeName}'] Received line: {Line}", PipeName, line);
-
-                WorkerResponse? response;
                 try
                 {
-                    response = IpcSerializer.Deserialize<WorkerResponse>(line);
+#if NETSTANDARD2_0
+                    var line = await _reader.ReadLineAsync().ConfigureAwait(false);
+#else
+                    var line = await _reader.ReadLineAsync(cancellationToken).ConfigureAwait(false);
+#endif
+
+                    if (line == null)
+                    {
+                        _logger.LogDebug("[Worker '{PipeName}'] Pipe closed", PipeName);
+                        break; // Pipe closed
+                    }
+
+                    _logger.LogTrace("[Worker '{PipeName}'] Read line: '{Line}'", PipeName, line);
+
+                    var response = IpcSerializer.Deserialize<WorkerResponse>(line);
+
+                    switch (response)
+                    {
+                        case null:
+                            continue;
+
+                        case LogResponse logResponse:
+                            ProcessLogResponse(logResponse);
+                            break;
+
+                        case ErrorResponse errorResponse:
+                            _logger.LogError("Worker '{PipeName}' sent error response: '{Error}'", PipeName, errorResponse.Message);
+                            break;
+
+                        default:
+                            // Try to match response to pending request
+                            if (response.Id.HasValue && _pendingRequests.TryRemove(response.Id.Value, out var pending))
+                            {
+                                _logger.LogTrace("[Worker '{PipeName}'] Matched response '{ResponseType}' to RequestId '{RequestId}'", PipeName, response.GetType().Name, response.Id);
+                                pending.TaskCompletionSource.TrySetResult(response);
+                            }
+                            else
+                                _logger.LogWarning("[Worker '{PipeName}'] Received response '{ResponseType}' with no matching pending request (id: '{RequestId}')", PipeName, response.GetType().Name, response.Id?.ToString() ?? "null");
+
+                            break;
+                    }
                 }
-                catch (Exception exception)
+                catch (Exception exception) when (!cancellationToken.IsCancellationRequested)
                 {
-                    _logger.LogWarning(exception, "[Worker '{PipeName}'] Failed to deserialize response: {Line}", PipeName, line);
-                    continue;
+                    _logger.LogError(exception, "[Worker '{PipeName}'] Error reading from pipe", PipeName);
+                    break;
+                }
+            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested
+        }
+        finally
+        {
+            // Fail all pending requests when pipe closes
+            foreach (var pending in _pendingRequests.Values)
+                pending.TaskCompletionSource.TrySetException(new InvalidOperationException("Worker pipe closed before response was received"));
+
+            _pendingRequests.Clear();
+
+            _logger.LogDebug("[Worker '{PipeName}'] Response reader task ended", PipeName);
+        }
+    }
+    #endregion
+
+    #region TimeoutMonitorLoopAsync
+    /// <summary>
+    ///     Background task that monitors pending requests and fails them when they timeout.
+    /// </summary>
+    /// <param name="cancellationToken">Cancellation token to stop the monitor.</param>
+    private async Task TimeoutMonitorLoopAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            while (!cancellationToken.IsCancellationRequested && !_disposed)
+            {
+                var now = DateTime.UtcNow;
+                var timedOut = _pendingRequests.Where(kvp => kvp.Value.Deadline <= now).ToList();
+
+                // Fail timed-out requests
+                foreach (var kvp in timedOut)
+                {
+                    if (!_pendingRequests.TryRemove(kvp.Key, out var pending)) continue;
+                    _logger.LogWarning("[Worker '{PipeName}'] Request '{RequestType}' timed out (RequestId: '{RequestId}')", PipeName, pending.RequestType, kvp.Key);
+                    pending.TaskCompletionSource.TrySetException(new TimeoutException($"Worker did not respond to '{pending.RequestType}' within the specified timeout"));
                 }
 
-                // If it's a log message, process it and continue reading
-                if (response is not LogResponse logResponse) return response;
-                ProcessLogResponse(logResponse);
-
-                // Otherwise return the response
+                await Task.Delay(10, cancellationToken).ConfigureAwait(false);
             }
-            catch (OperationCanceledException)
-            {
-                throw new TimeoutException("Worker did not respond in time.");
-            }
+        }
+        catch (OperationCanceledException)
+        {
+            // Expected when cancellation is requested
+        }
+        finally
+        {
+            _logger.LogDebug("[Worker '{PipeName}'] Timeout monitor task ended", PipeName);
         }
     }
     #endregion
@@ -251,6 +405,27 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
     }
     #endregion
 
+    #region ReadyAsync
+    /// <summary>
+    ///     Sends a ready request to the worker and waits for a ready response.
+    /// </summary>
+    /// <param name="timeout">Maximum time to wait for the ready response.</param>
+    /// <returns><c>true</c> if the worker responded with a ready response; otherwise <c>false</c>.</returns>
+    public async Task<bool> ReadyAsync(TimeSpan timeout)
+    {
+        try
+        {
+            await SendRequestAsync<ReadyResponse>(new ReadyRequest(), timeout).ConfigureAwait(false);
+            return true;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Ready request to worker '{PipeName}' failed", PipeName);
+            return false;
+        }
+    }
+    #endregion
+
     #region PingAsync
     /// <summary>
     ///     Sends a ping to the worker and waits for a pong response.
@@ -259,119 +434,90 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
     /// <returns><c>true</c> if the worker responded with a pong; otherwise <c>false</c>.</returns>
     public async Task<bool> PingAsync(TimeSpan timeout)
     {
-        await _sendLock.WaitAsync().ConfigureAwait(false);
         try
         {
-            var json = IpcSerializer.Serialize<WorkerRequest>(new PingRequest());
-            await _writer.WriteLineAsync(json).ConfigureAwait(false);
-
-            var response = await ReadResponseAsync(timeout).ConfigureAwait(false);
-            return response is PongResponse;
+            await SendRequestAsync<PongResponse>(new PingRequest(), timeout).ConfigureAwait(false);
+            return true;
         }
         catch (Exception exception)
         {
             _logger.LogDebug(exception, "Ping to worker '{PipeName}' failed", PipeName);
             return false;
         }
-        finally
+    }
+    #endregion
+
+    #region ConvertAsync
+    /// <summary>
+    ///     Sends a request to convert a document to PDF.
+    /// </summary>
+    /// <param name="request">The conversion request.</param>
+    /// <param name="timeout">Maximum time to wait for the conversion response.</param>
+    /// <returns>The conversion response.</returns>
+    public async Task<ConvertResponse> ConvertAsync(ConvertRequest request, TimeSpan timeout)
+    {
+        try
         {
-            _sendLock.Release();
+            var response = await SendRequestAsync<ConvertResponse>(request, timeout).ConfigureAwait(false);
+            return response;
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Convert to PDF request to worker '{PipeName}' failed", PipeName);
+            return new ConvertResponse(false, exception.Message);
         }
     }
     #endregion
 
-    #region SendShutdownAsync
+    #region ShutdownAsync
     /// <summary>
     ///     Sends a graceful shutdown request to the worker.
     /// </summary>
-    public async Task SendShutdownAsync()
+    /// <param name="timeout">Maximum time to wait for the shutdown response.</param>
+    public async Task<bool> ShutdownAsync(TimeSpan timeout)
     {
         try
         {
-            var json = IpcSerializer.Serialize<WorkerRequest>(new ShutdownRequest());
-            await _writer.WriteLineAsync(json).ConfigureAwait(false);
-            await _writer.FlushAsync().ConfigureAwait(false);
+            await SendRequestAsync<ShutdownResponse>(new ShutdownRequest(), timeout).ConfigureAwait(false);
+            return true;
         }
-        catch
+        catch (Exception exception)
         {
-            // ignored
+            _logger.LogDebug(exception, "Shutdown request to worker '{PipeName}' failed", PipeName);
+            return false;
         }
     }
     #endregion
 
-    #region Dispose
+    #region KillProcess
     /// <summary>
-    ///     Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
-    ///     Attempts a graceful shutdown first, then forcefully terminates the worker if needed.
+    ///     Kills the given process, ignoring any exceptions that occur during killing. Used for cleanup of worker processes.
     /// </summary>
-    public void Dispose()
+    /// <param name="process">The process to kill.</param>
+    private void KillProcess(Process? process)
     {
-        Dispose(true);
-        GC.SuppressFinalize(this);
-    }
+        if (process == null || process.HasExited) return;
 
-    /// <summary>
-    ///     Releases the unmanaged resources used by the <see cref="WorkerHandle"/> and optionally releases the managed resources.
-    /// </summary>
-    /// <param name="disposing">true to release both managed and unmanaged resources; false to release only unmanaged resources.</param>
-    protected virtual void Dispose(bool disposing)
-    {
-        if (_disposed) return;
-        _disposed = true;
+        _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
 
-        if (!disposing) return;
-        _logger.LogDebug("Disposing worker '{PipeName}'", PipeName);
-
-        // Try graceful shutdown first
         try
         {
-            if (!_process.HasExited)
-            {
-                var shutdownTask = SendShutdownAsync();
-                if (!shutdownTask.Wait(TimeSpan.FromSeconds(2)))
-                {
-                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 2 seconds", PipeName);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Error sending shutdown to worker '{PipeName}'", PipeName);
-        }
-
-        // Dispose managed resources
-        _sendLock.Dispose();
-        _reader.Dispose();
-        _writer.Dispose();
-        _pipe.Dispose();
-
-        // Forcefully kill if still running
-        try
-        {
-            if (!_process.HasExited)
-            {
-                _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
 #if NETSTANDARD2_0
-                    _process.Kill();
+            process.Kill();
 #else
-                _process.Kill(true);
+            process.Kill(true);
 #endif
-                if (!_process.WaitForExit(1000))
-                {
-                    _logger.LogWarning("Worker '{PipeName}' did not exit within 1 second after kill", PipeName);
-                }
-            }
         }
-        catch (Exception ex)
+        catch (Exception exception)
         {
-            _logger.LogDebug(ex, "Error killing worker '{PipeName}'", PipeName);
+            _logger.LogDebug(exception, "Error killing worker '{PipeName}'", PipeName);
         }
 
         _process.Dispose();
+
     }
     #endregion
 
-#if !NETSTANDARD2_0
     #region DisposeAsync
     /// <summary>
     ///     Asynchronously releases the unmanaged resources used by the <see cref="WorkerHandle"/>.
@@ -381,78 +527,65 @@ internal class WorkerHandle : IDisposable, IAsyncDisposable
         if (_disposed) return;
         _disposed = true;
 
-        _logger.LogDebug("Disposing worker '{PipeName}' asynchronously", PipeName);
+        _logger.LogDebug("Disposing worker '{PipeName}'", PipeName);
+
+        _pendingRequests.Clear();
+
 
         // Try graceful shutdown first
         try
         {
             if (!_process.HasExited)
             {
-                await SendShutdownAsync().ConfigureAwait(false);
-
-                // Give the worker a chance to shut down gracefully
-                var shutdownDelay = Task.Delay(2000);
-                var exitTask = Task.Run(() =>
-                {
-                    try
-                    {
-                        _process.WaitForExit(2000);
-                    }
-                    catch { /* ignored */ }
-                });
-
-                await Task.WhenAny(exitTask, shutdownDelay).ConfigureAwait(false);
-
+                await ShutdownAsync(TimeSpan.FromSeconds(5)).ConfigureAwait(false);
+                _process.Refresh();
                 if (!_process.HasExited)
-                {
-                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 2 seconds", PipeName);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            _logger.LogDebug(ex, "Error sending shutdown to worker '{PipeName}'", PipeName);
-        }
-
-        // Dispose managed resources
-        _sendLock?.Dispose();
-
-        await _writer.DisposeAsync().ConfigureAwait(false);
-        _reader?.Dispose();
-        await _pipe.DisposeAsync().ConfigureAwait(false);
-
-        // Forcefully kill if still running
-        try
-        {
-            if (!_process.HasExited)
-            {
-                _logger.LogDebug("Forcefully killing worker '{PipeName}'", PipeName);
-                _process.Kill(true);
-
-                await Task.Run(() =>
-                {
-                    try
-                    {
-                        _process.WaitForExit(1000);
-                    }
-                    catch { /* ignored */ }
-                }).ConfigureAwait(false);
-
-                if (!_process.HasExited)
-                {
-                    _logger.LogWarning("Worker '{PipeName}' did not exit within 1 second after kill", PipeName);
-                }
+                    _logger.LogWarning("Worker '{PipeName}' did not respond to shutdown request within 5 seconds", PipeName);
             }
         }
         catch (Exception exception)
         {
-            _logger.LogDebug(exception, "Error killing worker '{PipeName}'", PipeName);
+            _logger.LogDebug(exception, "Error sending shutdown to worker '{PipeName}'", PipeName);
         }
 
-        _process.Dispose();
+        // Stop background tasks
+        try
+        {
+#if NETSTANDARD2_0
+            _cancellationTokenSource.Cancel();
+#else
+            await _cancellationTokenSource.CancelAsync().ConfigureAwait(false);
+#endif
+            var allTasks = Task.WhenAll(_responseReaderTask, _timeoutMonitorTask);
+            await Task.WhenAny(allTasks, Task.Delay(2000)).ConfigureAwait(false);
+            if (!allTasks.IsCompleted)
+            {
+                _logger.LogWarning("Background tasks for worker '{PipeName}' did not complete within 2 seconds", PipeName);
+            }
+        }
+        catch (Exception exception)
+        {
+            _logger.LogDebug(exception, "Error stopping background tasks for worker '{PipeName}'", PipeName);
+        }
+
+
+        // Dispose managed resources
+        _cancellationTokenSource.Dispose();
+        _reader.Dispose();
+
+#if NETSTANDARD2_0
+        _writer.Dispose();
+        _pipe.Dispose();
+#else
+        await _writer.DisposeAsync().ConfigureAwait(false);
+        await _pipe.DisposeAsync().ConfigureAwait(false);
+#endif
+
+        KillProcess(_process);
 
         GC.SuppressFinalize(this);
+
+        _logger.LogDebug("Worker disposed");
     }
     #endregion
-#endif
 }

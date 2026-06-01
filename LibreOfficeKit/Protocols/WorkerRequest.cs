@@ -31,9 +31,14 @@ namespace LibreOfficeKit.Protocols;
 /// <summary>
 ///     Base class for all IPC messages sent from host to worker.
 /// </summary>
-[JsonDerivedType(typeof(ConvertRequest), "convert")]
-[JsonDerivedType(typeof(PingRequest), "ping")]
-[JsonDerivedType(typeof(ShutdownRequest), "shutdown")]
+[JsonDerivedType(typeof(ConvertRequest), "convertRequest")]
+[JsonDerivedType(typeof(ReadyRequest), "readyRequest")]
+[JsonDerivedType(typeof(PingRequest), "pingRequest")]
+[JsonDerivedType(typeof(ShutdownRequest), "shutdownRequest")]
 internal abstract class WorkerRequest
 {
+    /// <summary>
+    ///     Unique identifier for this request. Used to match responses to requests.
+    /// </summary>
+    public int Id { get; set; }
 }

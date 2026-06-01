@@ -65,27 +65,24 @@ internal static class Program
     {
         if (args is ["--worker", _, ..])
         {
-            var pipeName = args[1];
-            var logLevel = LogLevel.Information; // Default
-
-            // Check if --loglevel argument is provided
-            if (args.Length < 4) return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
-            for (var i = 2; i < args.Length - 1; i++)
+            try
             {
-                if (args[i] != "--loglevel" || !int.TryParse(args[i + 1], out var logLevelInt)) continue;
-                logLevel = (LogLevel)logLevelInt;
-                break;
+                var pipeName = args[1];
+                if (args[2] == "--loglevel" && Enum.TryParse<LogLevel>(args[3], true, out var logLevel))
+                    return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+            }
+            catch (Exception exception)
+            {
+                await System.Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}', error: '{exception.Message}'").ConfigureAwait(false);
+                return 0;
             }
 
-            return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+            await System.Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}").ConfigureAwait(false);
+            return 0;
         }
 
         System.Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
-        System.Console.WriteLine("  Multi-process pool architecture with hot standby");
         System.Console.WriteLine();
-
-        if (args is ["--direct", _, ..])
-            return RunDirectConversion(args[1], args.Length > 2 ? args[2] : null);
 
         if (args.Length >= 1)
         {
@@ -94,64 +91,17 @@ internal static class Program
                 ? args[1]
                 : Path.ChangeExtension(inputFile, ".pdf");
 
-            return await RunPoolConversionAsync(inputFile, outputFile).ConfigureAwait(false);
+            return RunDirectConversion(inputFile, outputFile);
         }
 
         // No arguments — show usage
         System.Console.WriteLine("Usage:");
-        System.Console.WriteLine("  LibreOfficeKit.Console <input> [output]                       Convert using worker pool");
-        System.Console.WriteLine("  LibreOfficeKit.Console --direct <input> [output]              Convert directly (single process)");
-        System.Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName> [--loglevel <0-6>] (internal: worker mode)");
+        System.Console.WriteLine("  LibreOfficeKit.Console <input> [output]");
+        System.Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName> [--loglevel <Trace|Debug|Information|Warning|Error|Critical|None>]");
         return 0;
     }
     #endregion
-
-    #region RunPoolConversionAsync
-    /// <summary>
-    ///    Runs the document conversion using the Converter class, which manages a pool of worker processes. This method initializes the converter,
-    ///    performs the conversion, and handles any errors that may occur during the process.
-    /// </summary>
-    /// <param name="inputFile">The path to the input document file.</param>
-    /// <param name="outputFile">The path to the output PDF file.</param>
-    /// <returns>A task that represents the asynchronous operation. The task result contains the process exit code: 0 for success, or a non-zero value if an error occurs.</returns>
-    private static async Task<int> RunPoolConversionAsync(string inputFile, string outputFile)
-    {
-        if (!File.Exists(inputFile))
-        {
-            await System.Console.Error.WriteLineAsync($"ERROR: Input file not found: '{inputFile}', working directory: '{Directory.GetCurrentDirectory()}'").ConfigureAwait(false);
-            return 1;
-        }
-
-        System.Console.WriteLine($"  Input:  '{inputFile}'");
-        System.Console.WriteLine($"  Output: '{outputFile}'");
-        System.Console.WriteLine();
-
-        try
-        {
-            await using var converter = new Converter(4, 2, TimeSpan.FromMinutes(5));
-
-            System.Console.Write("Converting to PDF (via worker pool)... ");
-
-            await converter.ConvertToPdfAsync(inputFile, outputFile).ConfigureAwait(false);
-
-            System.Console.WriteLine("OK");
-
-            if (!File.Exists(outputFile)) return 0;
-            var fileInfo = new FileInfo(outputFile);
-            System.Console.WriteLine("\n  PDF created successfully!");
-            System.Console.WriteLine($"  Output: '{outputFile}'");
-            System.Console.WriteLine($"  Size:   {fileInfo.Length:N0} bytes");
-
-            return 0;
-        }
-        catch (Exception exception)
-        {
-            await System.Console.Error.WriteLineAsync($"FAILED\n  Error: '{exception.Message}'").ConfigureAwait(false);
-            return 1;
-        }
-    }
-    #endregion
-
+    
     #region RunDirectConversion
     /// <summary>
     ///     Converts the specified input file to PDF format using a direct LibreOffice invocation.
