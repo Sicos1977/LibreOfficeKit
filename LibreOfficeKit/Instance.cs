@@ -290,6 +290,7 @@ public sealed class Instance : IDisposable
         var stopwatch = Stopwatch.StartNew();
 
         installPath = Path.GetFullPath(installPath);
+
         if (!Directory.Exists(installPath))
             throw new DirectoryNotFoundException($"LibreOffice install path not found: {installPath}");
 

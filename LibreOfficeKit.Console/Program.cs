@@ -129,7 +129,6 @@ internal static class Program
             }
 
             logger.LogInformation("Found LibreOffice at '{InstallPath}'", installPath);
-            
             using var office = Instance.Create(installPath, logger);
             using var document = office.DocumentLoad(inputFile);
             outputFile ??= Path.ChangeExtension(inputFile, ".pdf");
