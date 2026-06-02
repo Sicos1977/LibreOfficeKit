@@ -31,6 +31,7 @@
 // time since LOK is NOT thread-safe.
 // =============================================================================
 
+using System.Diagnostics;
 using LibreOfficeKit.Bindings;
 using LibreOfficeKit.Enums;
 using Microsoft.Extensions.Logging;
@@ -285,6 +286,8 @@ public sealed class Instance : IDisposable
 
         if (_instanceActive)
             throw new InvalidOperationException("Only one LibreOffice instance can be active at a time (LOK is not thread-safe).");
+
+        var stopwatch = Stopwatch.StartNew();
 
         installPath = Path.GetFullPath(installPath);
         if (!Directory.Exists(installPath))
@@ -632,6 +635,10 @@ public sealed class Instance : IDisposable
                     registerCallback(pOffice, CallbackDelegate, IntPtr.Zero);
                     _logger?.LogDebug("LibreOffice callback successfully registered via vtable");
                 }
+
+                stopwatch.Stop();
+
+                _logger?.LogInformation("LibreOffice initialized successfully in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
         }
         else
         {
@@ -1010,7 +1017,7 @@ public sealed class Instance : IDisposable
     /// </summary>
     /// <param name="filePath">The file system path to convert.</param>
     /// <returns>A <c>file://</c> URI string.</returns>
-    public static string PathToFileUrl(string filePath)
+    internal static string PathToFileUrl(string filePath)
     {
         filePath = Path.GetFullPath(filePath);
         var uri = new Uri(filePath);
@@ -1024,35 +1031,52 @@ public sealed class Instance : IDisposable
     ///     LibreOffice import filter based on the file extension.
     ///     Uses <c>documentLoadWithOptions</c> when available, falling back to <c>documentLoad</c>.
     /// </summary>
-    /// <param name="fileUrl">The <c>file://</c> URL of the document to load.</param>
+    /// <param name="inputFile">The path to the document to load.</param>
     /// <returns>A <see cref="Document" /> representing the loaded document.</returns>
     /// <exception cref="InvalidOperationException">Thrown when the document cannot be loaded.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.FilePasswordProtectedException">Thrown when the document is password-protected.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.FileTypeNotSupportedException">Thrown when the file type is not supported.</exception>
-    public Document DocumentLoad(string fileUrl)
+    public Document DocumentLoad(string inputFile)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
-        _logger?.LogInformation("Loading document: '{FileUrl}'", fileUrl);
+        _logger?.LogDebug("Loading document '{InputFile}'", inputFile);
+
+        var inputFileInfo = new FileInfo(inputFile);
+        if (!inputFileInfo.Exists)
+        {
+            _logger?.LogError("Input file not found: '{InputFile}', working directory: '{WorkingDirectory}'", inputFile, Directory.GetCurrentDirectory());
+            throw new FileNotFoundException("Input file not found", inputFile);
+        }
+        
+        // .~lock.test.xlsx#
+        var lockFile = Path.Combine(inputFileInfo.DirectoryName ?? string.Empty, $".~lock.{inputFileInfo.Name}#");
+        if (File.Exists(lockFile))
+        {
+            _logger?.LogWarning("Found lock file for '{InputFile}', deleting it.", inputFile);
+            File.Delete(lockFile);
+        }
+
+        var fileUrl = PathToFileUrl(inputFile);
 
         // Derive a filter name from the file extension so LOK does not have to guess.
-        var filterName = GetFilterName(fileUrl);
-        _logger?.LogDebug("Resolved filter name: '{FilterName}' for file '{FileUrl}'", filterName ?? "(auto-detect)", fileUrl);
+        var filterName = GetFilterName(inputFileInfo);
+        _logger?.LogDebug("Resolved filter name: '{FilterName}' for file '{InputFile}'", filterName ?? "(auto-detect)", inputFileInfo.Name);
 
         var optionsList = new List<string> 
         { 
             "Hidden=true", 
-            "MacroExecutionMode=0",
             "ReadOnly=true",
             "UpdateDocMode=0",
-            "InteractionHandler=null"
+            "InteractionHandler=0",
+            "Batch=1"
         };
 
         if (!string.IsNullOrEmpty(filterName)) optionsList.Add($"FilterName={filterName}");
 
         var options = string.Join(",", optionsList);
 
-        _logger?.LogDebug("Load options: '{Options}'", options);
+        _logger?.LogInformation("Loading document: '{InputFile}' with options: '{Options}'", inputFileInfo.FullName, options);
 
         IntPtr pDoc;
         if (_officeClass.documentLoadWithOptions != IntPtr.Zero)
@@ -1146,149 +1170,150 @@ public sealed class Instance : IDisposable
     ///     based on the file extension. Returns <c>null</c> when the extension is unknown
     ///     so LOK can fall back to auto-detection.
     /// </summary>
-    private static string? GetFilterName(string fileUrl)
+    /// <param name="inputFile">The path to the input file for which to determine the filter name.</param>
+    private static string? GetFilterName(FileInfo inputFile)
     {
-        var ext = Path.GetExtension(fileUrl).TrimStart('.').ToLowerInvariant();
+        var ext = inputFile.Extension.ToLowerInvariant();
         return ext switch
         {
             // ── Writer ──────────────────────────────────────────────────────
-            "odt"    => "writer8",
-            "ott"    => "writer8_template",
-            "odm"    => "writerglobal8",
-            "oth"    => "writerweb8_writer_template",
-            "doc"    => "MS Word 97",
-            "dot"    => "MS Word 97 Vorlage",
-            "docx"   => "MS Word 2007 XML",
-            "docm"   => "MS Word 2007 XML",
-            "dotx"   => "MS Word 2007 XML Template",
-            "dotm"   => "MS Word 2007 XML Template",
-            "rtf"    => "Rich Text Format",
-            "txt"    => "Text",
-            "fodt"   => "OpenDocument Text Flat XML",
-            "uot"    => "UOF Text",
-            "wpd"    => "WordPerfect",
-            "wps"    => "MS Works",
-            "lwp"    => "Lotus WordPro",
-            "pages"  => "writer_pages",
-            "fb2"    => "FictionBook 2",
-            "epub"   => "EPUB",
-            "html"   => "HTML (StarWriter)",
-            "htm"    => "HTML (StarWriter)",
-            "xhtml"  => "XHTML Writer File",
-            "sxw"    => "StarWriter 5.5",
-            "sdw"    => "StarWriter 3.0",
-            "vor"    => "StarWriter 5.5 Vorlage",
-            "pdb"    => "PalmDoc",
-            "abw"    => "AbiWord",
-            "zabw"   => "AbiWord",
-            "hwp"    => "writer_HWP",
-            "hwpx"   => "writer_HWPX",
-            "602"    => "T602Document",
+            ".odt"    => "writer8",
+            ".ott"    => "writer8_template",
+            ".odm"    => "writerglobal8",
+            ".oth"    => "writerweb8_writer_template",
+            ".doc"    => "MS Word 97",
+            ".dot"    => "MS Word 97 Vorlage",
+            ".docx"   => "MS Word 2007 XML",
+            ".docm"   => "MS Word 2007 XML",
+            ".dotx"   => "MS Word 2007 XML Template",
+            ".dotm"   => "MS Word 2007 XML Template",
+            ".rtf"    => "Rich Text Format",
+            ".txt"    => "Text",
+            ".fodt"   => "OpenDocument Text Flat XML",
+            ".uot"    => "UOF Text",
+            ".wpd"    => "WordPerfect",
+            ".wps"    => "MS Works",
+            ".lwp"    => "Lotus WordPro",
+            ".pages"  => "writer_pages",
+            ".fb2"    => "FictionBook 2",
+            ".epub"   => "EPUB",
+            ".html"   => "HTML (StarWriter)",
+            ".htm"    => "HTML (StarWriter)",
+            ".xhtml"  => "XHTML Writer File",
+            ".sxw"    => "StarWriter 5.5",
+            ".sdw"    => "StarWriter 3.0",
+            ".vor"    => "StarWriter 5.5 Vorlage",
+            ".pdb"    => "PalmDoc",
+            ".abw"    => "AbiWord",
+            ".zabw"   => "AbiWord",
+            ".hwp"    => "writer_HWP",
+            ".hwpx"   => "writer_HWPX",
+            ".602"    => "T602Document",
 
             // ── Calc ────────────────────────────────────────────────────────
-            "ods"    => "calc8",
-            "ots"    => "calc8_template",
-            "xls"    => "MS Excel 97",
-            "xlt"    => "MS Excel 97 Vorlage",
-            "xlsx"   => "Calc MS Excel 2007 XML",
-            "xlsm"   => "Calc MS Excel 2007 XML",
-            "xltx"   => "Calc MS Excel 2007 XML Template",
-            "xltm"   => "Calc MS Excel 2007 XML Template",
-            "xlsb"   => "MS Excel 2007 Binary",
-            "csv"    => "Text - txt - csv (StarCalc)",
-            "tsv"    => "Text - txt - csv (StarCalc)",
-            "dif"    => "DIF",
-            "slk"    => "SYLK",
-            "fods"   => "OpenDocument Spreadsheet Flat XML",
-            "uos"    => "UOF Spreadsheet",
-            "sxc"    => "StarCalc 5.5",
-            "sdc"    => "StarCalc 3.0",
-            "numbers" => "calc_numbers",
-            "wk1"    => "Lotus",
-            "wk3"    => "Lotus",
-            "wk4"    => "Lotus",
-            "wb2"    => "Quattro Pro 6.0",
+            ".ods"    => "calc8",
+            ".ots"    => "calc8_template",
+            ".xls"    => "MS Excel 97",
+            ".xlt"    => "MS Excel 97 Vorlage",
+            ".xlsx"   => "Calc MS Excel 2007 XML",
+            ".xlsm"   => "Calc MS Excel 2007 XML",
+            ".xltx"   => "Calc MS Excel 2007 XML Template",
+            ".xltm"   => "Calc MS Excel 2007 XML Template",
+            ".xlsb"   => "MS Excel 2007 Binary",
+            ".csv"    => "Text - txt - csv (StarCalc)",
+            ".tsv"    => "Text - txt - csv (StarCalc)",
+            ".dif"    => "DIF",
+            ".slk"    => "SYLK",
+            ".fods"   => "OpenDocument Spreadsheet Flat XML",
+            ".uos"    => "UOF Spreadsheet",
+            ".sxc"    => "StarCalc 5.5",
+            ".sdc"    => "StarCalc 3.0",
+            ".numbers" => "calc_numbers",
+            ".wk1"    => "Lotus",
+            ".wk3"    => "Lotus",
+            ".wk4"    => "Lotus",
+            ".wb2"    => "Quattro Pro 6.0",
 
             // ── Impress ─────────────────────────────────────────────────────
-            "odp"    => "impress8",
-            "otp"    => "impress8_template",
-            "ppt"    => "MS PowerPoint 97",
-            "pot"    => "MS PowerPoint 97 Vorlage",
-            "pps"    => "MS PowerPoint 97",
-            "pptx"   => "Impress MS PowerPoint 2007 XML",
-            "pptm"   => "Impress MS PowerPoint 2007 XML",
-            "potx"   => "Impress MS PowerPoint 2007 XML Template",
-            "potm"   => "Impress MS PowerPoint 2007 XML Template",
-            "ppsx"   => "Impress MS PowerPoint 2007 XML",
-            "fodp"   => "OpenDocument Presentation Flat XML",
-            "uop"    => "UOF Presentation",
-            "sxi"    => "StarImpress 5.5",
-            "sdd"    => "StarDraw 3.0",
-            "key"    => "impress_key",
-            "cgm"    => "CGM - Computer Graphics Metafile",
+            ".odp"    => "impress8",
+            ".otp"    => "impress8_template",
+            ".ppt"    => "MS PowerPoint 97",
+            ".pot"    => "MS PowerPoint 97 Vorlage",
+            ".pps"    => "MS PowerPoint 97",
+            ".pptx"   => "Impress MS PowerPoint 2007 XML",
+            ".pptm"   => "Impress MS PowerPoint 2007 XML",
+            ".potx"   => "Impress MS PowerPoint 2007 XML Template",
+            ".potm"   => "Impress MS PowerPoint 2007 XML Template",
+            ".ppsx"   => "Impress MS PowerPoint 2007 XML",
+            ".fodp"   => "OpenDocument Presentation Flat XML",
+            ".uop"    => "UOF Presentation",
+            ".sxi"    => "StarImpress 5.5",
+            ".sdd"    => "StarDraw 3.0",
+            ".key"    => "impress_key",
+            ".cgm"    => "CGM - Computer Graphics Metafile",
 
             // ── Draw ─────────────────────────────────────────────────────────
-            "odg"    => "draw8",
-            "otg"    => "draw8_template",
-            "fodg"   => "OpenDocument Drawing Flat XML",
-            "sxd"    => "StarDraw 5.5",
-            "std"    => "StarDraw 5.5 Vorlage",
-            "svg"    => "draw_svg_Export",
-            "svgz"   => "draw_svg_Export",
-            "wmf"    => "WMF",
-            "emf"    => "EMF",
-            "vsd"    => "Visio",
-            "vsdx"   => "Visio 2013",
-            "vsdm"   => "Visio 2013",
-            "vss"    => "Visio",
-            "vst"    => "Visio",
-            "pub"    => "Publisher",
-            "cdr"    => "Corel Draw",
-            "fh"     => "FreeHand",
-            "fh4"    => "FreeHand",
-            "fh5"    => "FreeHand",
-            "fh8"    => "FreeHand",
-            "fh9"    => "FreeHand",
-            "fh10"   => "FreeHand",
-            "fh11"   => "FreeHand",
+            ".odg"    => "draw8",
+            ".otg"    => "draw8_template",
+            ".fodg"   => "OpenDocument Drawing Flat XML",
+            ".sxd"    => "StarDraw 5.5",
+            ".std"    => "StarDraw 5.5 Vorlage",
+            ".svg"    => "draw_svg_Export",
+            ".svgz"   => "draw_svg_Export",
+            ".wmf"    => "WMF",
+            ".emf"    => "EMF",
+            ".vsd"    => "Visio",
+            ".vsdx"   => "Visio 2013",
+            ".vsdm"   => "Visio 2013",
+            ".vss"    => "Visio",
+            ".vst"    => "Visio",
+            ".pub"    => "Publisher",
+            ".cdr"    => "Corel Draw",
+            ".fh"     => "FreeHand",
+            ".fh4"    => "FreeHand",
+            ".fh5"    => "FreeHand",
+            ".fh8"    => "FreeHand",
+            ".fh9"    => "FreeHand",
+            ".fh10"   => "FreeHand",
+            ".fh11"   => "FreeHand",
 
             // ── Math ─────────────────────────────────────────────────────────
-            "odf"    => "math8",
-            "mml"    => "MathML XML (Math)",
-            "sxm"    => "StarMath 5.5",
+            ".odf"    => "math8",
+            ".mml"    => "MathML XML (Math)",
+            ".sxm"    => "StarMath 5.5",
 
             // ── Raster images (Draw opens these) ─────────────────────────────
-            "bmp"    => "BMP",
-            "gif"    => "GIF",
-            "jpg"    => "JPEG",
-            "jpeg"   => "JPEG",
-            "jpe"    => "JPEG",
-            "jfif"   => "JPEG",
-            "png"    => "PNG",
-            "tif"    => "TIFF",
-            "tiff"   => "TIFF",
-            "webp"   => "WEBP",
-            "pbm"    => "PBM",
-            "pgm"    => "PGM",
-            "ppm"    => "PPM",
-            "pnm"    => "PNM",
-            "xpm"    => "XPM",
-            "pcx"    => "PCX",
-            "psd"    => "PSD",
-            "tga"    => "TGA",
-            "ico"    => "ICO",
-            "cur"    => "ICO",
-            "eps"    => "EPS",
-            "met"    => "MET",
-            "svm"    => "SVM",
-            "xbm"    => "XBM",
-            "dxf"    => "DXF",
+            ".bmp"    => "BMP",
+            ".gif"    => "GIF",
+            ".jpg"    => "JPEG",
+            ".jpeg"   => "JPEG",
+            ".jpe"    => "JPEG",
+            ".jfif"   => "JPEG",
+            ".png"    => "PNG",
+            ".tif"    => "TIFF",
+            ".tiff"   => "TIFF",
+            ".webp"   => "WEBP",
+            ".pbm"    => "PBM",
+            ".pgm"    => "PGM",
+            ".ppm"    => "PPM",
+            ".pnm"    => "PNM",
+            ".xpm"    => "XPM",
+            ".pcx"    => "PCX",
+            ".psd"    => "PSD",
+            ".tga"    => "TGA",
+            ".ico"    => "ICO",
+            ".cur"    => "ICO",
+            ".eps"    => "EPS",
+            ".met"    => "MET",
+            ".svm"    => "SVM",
+            ".xbm"    => "XBM",
+            ".dxf"    => "DXF",
 
             // ── PDF (import via Draw/Writer) ──────────────────────────────────
-            "pdf"    => "draw_pdf_import",
+            ".pdf"    => "draw_pdf_import",
 
             // ── Database ─────────────────────────────────────────────────────
-            "odb"    => "StarBase",
+            ".odb"    => "StarBase",
 
             _        => null
         };

@@ -83,7 +83,7 @@ public class ConverterTests
 
     #region Microsoft Office Word tests
     [TestMethod]
-    //[Timeout(10000)]
+    [Timeout(10000)]
     public async Task DocWithoutEmbeddedFiles()
     {
         var outputFile = Path.Combine(_tempDirectory.FullName, "A DOC word document without embedded files.pdf");
@@ -164,8 +164,7 @@ public class ConverterTests
         await _converter.ConvertToPdfAsync(Path.Combine(AppContext.BaseDirectory, "TestFiles", "A XLS excel document without embedded files.xls"), outputFile, timeout: TimeSpan.FromMinutes(2));
         Assert.IsTrue(File.Exists(outputFile));
     }
-
-
+    
     [TestMethod]
     public async Task XlsWith2EmbeddedFiles()
     {

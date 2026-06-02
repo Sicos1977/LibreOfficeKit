@@ -30,7 +30,6 @@ using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
 using System.Diagnostics;
 using System.IO.Pipes;
-using System.Runtime.InteropServices;
 
 // ReSharper disable UnusedMember.Global
 
@@ -52,9 +51,6 @@ public static class WorkerProcess
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
     public static async Task<int> RunAsync(string pipeName, LogLevel logLevel = LogLevel.None)
     {
-        if (File.Exists("d:\\log.txt"))
-            File.Delete("d:\\log.txt");
-
         var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
         try
@@ -72,9 +68,7 @@ public static class WorkerProcess
         ILogger logger = new PipeLogger("WorkerProcess", writer, logLevel);
 
         Instance? office;
-
-        var stopwatch = Stopwatch.StartNew();
-
+        
         try
         {
             logger.LogInformation("Initializing LibreOffice instance");
@@ -88,13 +82,10 @@ public static class WorkerProcess
 
             logger.LogDebug("Found LibreOffice at '{InstallPath}'", installPath);
             office = Instance.Create(installPath, logger);
-            stopwatch.Stop();
-            logger.LogInformation("LibreOffice initialized successfully in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Failed to initialize LibreOffice");
-            await SendAsync(writer, new ErrorResponse($"Init failed: '{exception.Message}'"), 0).ConfigureAwait(false);
+            await SendAsync(writer, new ErrorResponse(exception.Message), 0).ConfigureAwait(false);
             return 1;
         }
 
@@ -161,46 +152,29 @@ public static class WorkerProcess
     /// <param name="logger">The logger for logging messages.</param>
     private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer, ILogger logger)
     {
-        var stopwatch = Stopwatch.StartNew();
-
         try
         {
-            logger.LogDebug("Loading document '{InputFile}'", request.InputFile);
-            var inputUrl = Instance.PathToFileUrl(request.InputFile);
-            var outputUrl = Instance.PathToFileUrl(request.OutputFile);
-
-            using var document = office.DocumentLoad(inputUrl);
-            logger.LogDebug("Document loaded in {ElapsedMs} ms, saving as PDF to '{OutputFile}'", stopwatch.ElapsedMilliseconds, request.OutputFile);
-
-            var saveStart = stopwatch.ElapsedMilliseconds;
-            var success = document.SaveAs(outputUrl, SaveFormat.Pdf, request.FilterOptions);
-            logger.LogDebug("SaveAs completed in {SaveMs} ms (total: {TotalMs} ms)", stopwatch.ElapsedMilliseconds - saveStart, stopwatch.ElapsedMilliseconds);
+            using var document = office.DocumentLoad(request.InputFile);
+            var success = document.SaveAs(request.OutputFile, SaveFormat.Pdf, request.FilterOptions);
 
             if (success)
-            {
-                logger.LogInformation("Conversion succeeded: '{OutputFile}' (total time: {TotalMs} ms)", request.OutputFile, stopwatch.ElapsedMilliseconds);
                 await SendAsync(writer, new ConvertResponse(true), request.Id).ConfigureAwait(false);
-            }
             else
             {
                 var error = office.GetError();
-                logger.LogError("Conversion failed for '{InputFile}': '{Error}' (total time: {TotalMs} ms)", request.InputFile, error ?? "SaveAs returned failure.", stopwatch.ElapsedMilliseconds);
                 await SendAsync(writer, new ConvertResponse(false, error ?? "SaveAs returned failure."), request.Id).ConfigureAwait(false);
             }
         }
         catch (Exceptions.FilePasswordProtectedException exception)
         {
-            logger.LogError(exception, "Document is password-protected: '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
             await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FilePasswordProtectedException)), request.Id).ConfigureAwait(false);
         }
         catch (Exceptions.FileTypeNotSupportedException exception)
         {
-            logger.LogError(exception, "File type not supported for '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
             await SendAsync(writer, new ConvertResponse(false, exception.Message, nameof(Exceptions.FileTypeNotSupportedException)), request.Id).ConfigureAwait(false);
         }
         catch (Exception exception)
         {
-            logger.LogError(exception, "Exception during conversion of '{InputFile}' (failed after {ElapsedMs} ms)", request.InputFile, stopwatch.ElapsedMilliseconds);
             await SendAsync(writer, new ConvertResponse(false, exception.Message), request.Id).ConfigureAwait(false);
         }
     }

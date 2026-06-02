@@ -116,8 +116,6 @@ internal static class Program
     /// <returns>0 if the conversion succeeds; otherwise, 1.</returns>
     private static int RunDirectConversion(string inputFile, string? outputFile)
     {
-        outputFile ??= Path.ChangeExtension(inputFile, ".pdf");
-
         using var logger = new Logging.ConsoleLogger(minLevel: LogLevel.Debug);
 
         try
@@ -131,23 +129,15 @@ internal static class Program
             }
 
             logger.LogInformation("Found LibreOffice at: '{InstallPath}'", installPath);
-
-            if (!File.Exists(inputFile))
-            {
-                logger.LogError("Input file not found: '{InputFile}', working directory: '{WorkingDirectory}'", inputFile, Directory.GetCurrentDirectory());
-                return 1;
-            }
-
-            var inputUrl = Instance.PathToFileUrl(inputFile);
-            var outputUrl = Instance.PathToFileUrl(outputFile);
+            
             using var office = Instance.Create(installPath, logger);
-            using var document = office.DocumentLoad(inputUrl);
-            var success = document.SaveAs(outputUrl, "pdf");
+            using var document = office.DocumentLoad(inputFile);
+            outputFile ??= Path.ChangeExtension(inputFile, ".pdf");
+            var success = document.SaveAs(outputFile, "pdf");
 
             if (success)
             {
                 logger.LogInformation("Conversion successful");
-                if (!File.Exists(outputFile)) return 0;
                 var fileInfo = new FileInfo(outputFile);
                 logger.LogInformation("Output: '{OutputFile}' ({Size:N0} bytes)", outputFile, fileInfo.Length);
                 return 0;

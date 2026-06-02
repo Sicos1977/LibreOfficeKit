@@ -80,25 +80,29 @@ public sealed class Document : IDisposable
     /// <summary>
     ///     Saves the document in another format using the native LOK <c>saveAs</c> function.
     /// </summary>
-    /// <param name="outputUrl">The output file URL (file:// format).</param>
+    /// <param name="outputFile">The output file path.</param>
     /// <param name="format">The target format string (e.g. <c>"pdf"</c>).</param>
     /// <param name="filterOptions">Optional filter options string.</param>
     /// <returns><c>true</c> if the save operation succeeded; otherwise <c>false</c>.</returns>
-    public bool SaveAs(string outputUrl, string format, string? filterOptions = null)
+    public bool SaveAs(string outputFile, string format, string? filterOptions = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
+
+        var outputFileInfo = new FileInfo(outputFile);
 
         if (_docClass.saveAs == IntPtr.Zero)
             throw new InvalidOperationException("saveAs function not available in this LibreOffice version.");
 
-        _logger?.LogInformation("Saving document as '{Format}' to '{OutputUrl}'", format, outputUrl);
         if (filterOptions != null)
-            _logger?.LogDebug("Filter options: '{FilterOptions}'", filterOptions);
+            _logger?.LogInformation("Saving document as '{Format}' to '{OutputFile}' with filter options '{FilterOptions}'", format, outputFileInfo.FullName, filterOptions);
+        else
+            _logger?.LogInformation("Saving document as '{Format}' to '{OutputFile}'", format, outputFileInfo.FullName);
 
         var saveAs = Marshal.GetDelegateForFunctionPointer<LokDocSaveAsFunction>(_docClass.saveAs);
+        var outputFileUrl = Instance.PathToFileUrl(outputFileInfo.FullName);
 
 #if NETSTANDARD2_0
-        var pUrl = Instance.StringToHGlobalUtf8(outputUrl);
+        var pUrl = Instance.StringToHGlobalUtf8(outputFileUrl);
         var pFormat = Instance.StringToHGlobalUtf8(format);
         var pFilter = filterOptions != null ? Instance.StringToHGlobalUtf8(filterOptions) : IntPtr.Zero;
 
@@ -121,7 +125,7 @@ public sealed class Document : IDisposable
             if (pFilter != IntPtr.Zero) Marshal.FreeHGlobal(pFilter);
         }
 #else
-        var result = saveAs(_pDocument, outputUrl, format, filterOptions);
+        var result = saveAs(_pDocument, outputFileUrl, format, filterOptions);
         if (result != 0)
         {
             _logger?.LogInformation("Save operation succeeded.");

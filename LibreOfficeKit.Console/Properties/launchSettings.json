@@ -2,7 +2,7 @@
   "profiles": {
     "LibreOfficeKit.Console": {
       "commandName": "Project",
-      "commandLineArgs": "d:\\test.docx d:\\test.pdf"
+      "commandLineArgs": "d:\\test.xlsx d:\\test.pdf"
     }
   }
 }
