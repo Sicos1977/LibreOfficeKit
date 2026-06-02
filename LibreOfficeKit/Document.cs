@@ -63,7 +63,7 @@ public sealed class Document : IDisposable
     internal Document(IntPtr pDocument, ILogger? logger)
     {
         _logger = logger;
-        _logger?.LogDebug("Document constructor called with pointer: {Pointer:X}", (long)pDocument);
+        _logger?.LogDebug("Document constructor called with pointer '{Pointer:X}'", (long)pDocument);
         _pDocument = pDocument;
 
         _logger?.LogDebug("Reading LibreOfficeKitDocument structure...");
@@ -91,7 +91,7 @@ public sealed class Document : IDisposable
         var outputFileInfo = new FileInfo(outputFile);
 
         if (_docClass.saveAs == IntPtr.Zero)
-            throw new InvalidOperationException("saveAs function not available in this LibreOffice version.");
+            throw new InvalidOperationException("saveAs function not available in this version.");
 
         if (filterOptions != null)
             _logger?.LogInformation("Saving document as '{Format}' to '{OutputFile}' with filter options '{FilterOptions}'", format, outputFileInfo.FullName, filterOptions);

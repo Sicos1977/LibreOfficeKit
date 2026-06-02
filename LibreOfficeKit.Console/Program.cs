@@ -128,7 +128,7 @@ internal static class Program
                 return 1;
             }
 
-            logger.LogInformation("Found LibreOffice at: '{InstallPath}'", installPath);
+            logger.LogInformation("Found LibreOffice at '{InstallPath}'", installPath);
             
             using var office = Instance.Create(installPath, logger);
             using var document = office.DocumentLoad(inputFile);

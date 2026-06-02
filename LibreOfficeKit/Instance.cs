@@ -607,7 +607,7 @@ public sealed class Instance : IDisposable
                     </oor:items>
                     """);
 
-                var profileUrl = $"file:///{tempProfile.Replace('\\', '/')}";
+                var profileUrl = PathToFileUrl(tempProfile);
 #if NETSTANDARD2_0
                 var pInstallPath = StringToHGlobalUtf8(installPath);
                 var pUserProfile = StringToHGlobalUtf8(profileUrl);
@@ -633,23 +633,37 @@ public sealed class Instance : IDisposable
                 {
                     var registerCallback = Marshal.GetDelegateForFunctionPointer<LokRegisterCallbackFunction>(vtable.registerCallback);
                     registerCallback(pOffice, CallbackDelegate, IntPtr.Zero);
-                    _logger?.LogDebug("LibreOffice callback successfully registered via vtable");
+                    _logger?.LogDebug("Callback successfully registered via vtable");
                 }
+
+                //if (vtable.joinThreads != IntPtr.Zero)
+                //{
+                //    var joinThreads = Marshal.GetDelegateForFunctionPointer<LokJoinThreadsFunction>(vtable.joinThreads);
+                //    var result = joinThreads(pOffice);
+                //    if (result == 0)
+                //        _logger?.LogWarning("joinThreads() returned 0 (failed)");
+                //}
+
+                //if (vtable.startThreads != IntPtr.Zero)
+                //{
+                //    var startThreads = Marshal.GetDelegateForFunctionPointer<LokStartThreadsFunction>(vtable.startThreads);
+                //    startThreads(pOffice);
+                //}
 
                 stopwatch.Stop();
 
-                _logger?.LogInformation("LibreOffice initialized successfully in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
+                _logger?.LogInformation("Initialized successfully in {ElapsedMilliseconds} ms", stopwatch.ElapsedMilliseconds);
         }
         else
         {
             NativeLibrary.Free(libraryHandle);
-            throw new InvalidOperationException("Could not find 'libreofficekit_hook_2' export in LibreOffice library.");
+            throw new InvalidOperationException("Could not find 'libreofficekit_hook_2' export in library.");
         }
 
         if (pOffice == IntPtr.Zero)
         {
             NativeLibrary.Free(libraryHandle);
-            throw new InvalidOperationException("libreofficekit_hook2 returned null. LibreOffice initialization failed.");
+            throw new InvalidOperationException("libreofficekit_hook2 returned null. Initialization failed.");
         }
 
         _instanceActive = true;
@@ -662,7 +676,7 @@ public sealed class Instance : IDisposable
         }
 
         instance.Dispose();
-        throw new InvalidOperationException($"LibreOffice initialization error: {initError}");
+        throw new InvalidOperationException($"Initialization error: {initError}");
     }
     #endregion
 
@@ -707,24 +721,23 @@ public sealed class Instance : IDisposable
             var versionInfo = JsonSerializer.Deserialize<LibreOfficeVersionInfo>(versionInfoJson!);
             if (versionInfo == null)
             {
-                _logger?.LogWarning("Failed to parse version info JSON: '{VersionInfoJson}'", versionInfoJson);
+                _logger?.LogWarning("Failed to parse version info JSON '{VersionInfoJson}'", versionInfoJson);
                 return;
             }
 
             // Log structured version information
-            _logger?.LogInformation(
-                "LibreOffice version: '{ProductName}' '{FullVersion}', Build: '{BuildId}'",
+            _logger?.LogInformation("Version info - name: '{ProductName}', version: '{FullVersion}', build: '{BuildId}'",
                 versionInfo.ProductName,
                 versionInfo.FullVersion,
                 versionInfo.BuildId);
         }
         catch (JsonException jsonEx)
         {
-            _logger?.LogWarning(jsonEx, "Failed to parse LibreOffice version JSON");
+            _logger?.LogWarning(jsonEx, "Failed to parse version JSON");
         }
         catch (Exception ex)
         {
-            _logger?.LogWarning(ex, "Failed to retrieve LibreOffice version information");
+            _logger?.LogWarning(ex, "Failed to retrieve version information");
         }
     }
     #endregion
@@ -797,15 +810,15 @@ public sealed class Instance : IDisposable
 
         if (_officeClass.setOptionalFeatures == IntPtr.Zero)
             throw new InvalidOperationException(
-                "setOptionalFeatures function not available in this LibreOffice version. " +
-                "This feature requires LibreOffice 6.0 or later.");
+                "setOptionalFeatures function not available in this version. " +
+                "This feature requires version 6.0 or later.");
 
         var setOptionalFeatures = Marshal.GetDelegateForFunctionPointer<LokSetOptionalFeaturesFunction>(_officeClass.setOptionalFeatures);
 
         var featureMask = (ulong)features;
         setOptionalFeatures(_pOffice, featureMask);
 
-        _logger?.LogDebug("Optional features set: '{Features}' (0x{FeatureMask:X})", features, featureMask);
+        _logger?.LogDebug("Optional features '{Features}' (0x{FeatureMask:X}) set", features, featureMask);
     }
     #endregion
 
@@ -863,11 +876,10 @@ public sealed class Instance : IDisposable
 
         if (_officeClass.setDocumentPassword == IntPtr.Zero)
             throw new InvalidOperationException(
-                "setDocumentPassword function not available in this LibreOffice version. " +
-                "This feature requires LibreOffice 6.0 or later.");
+                "setDocumentPassword function not available in this version. " +
+                "This feature requires version 6.0 or later.");
 
-        var setDocumentPassword = Marshal.GetDelegateForFunctionPointer<LokSetDocumentPasswordFunction>(
-            _officeClass.setDocumentPassword);
+        var setDocumentPassword = Marshal.GetDelegateForFunctionPointer<LokSetDocumentPasswordFunction>(_officeClass.setDocumentPassword);
 
 #if NETSTANDARD2_0
         var pUrl = StringToHGlobalUtf8(url);
@@ -916,7 +928,7 @@ public sealed class Instance : IDisposable
                 return handle;
         }
 
-        throw new FileNotFoundException($"Could not find or load LibreOffice library in: {installPath}. Searched for: {string.Join(", ", GetLibraryNames())}.");
+        throw new FileNotFoundException($"Could not find or load library in '{installPath}'. Searched for '{string.Join(", ", GetLibraryNames())}'.");
     }
     #endregion
 
@@ -1040,12 +1052,10 @@ public sealed class Instance : IDisposable
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
-        _logger?.LogDebug("Loading document '{InputFile}'", inputFile);
-
         var inputFileInfo = new FileInfo(inputFile);
         if (!inputFileInfo.Exists)
         {
-            _logger?.LogError("Input file not found: '{InputFile}', working directory: '{WorkingDirectory}'", inputFile, Directory.GetCurrentDirectory());
+            _logger?.LogError("Input file '{InputFile}' not found in working directory '{WorkingDirectory}'", inputFile, Directory.GetCurrentDirectory());
             throw new FileNotFoundException("Input file not found", inputFile);
         }
         
@@ -1053,7 +1063,7 @@ public sealed class Instance : IDisposable
         var lockFile = Path.Combine(inputFileInfo.DirectoryName ?? string.Empty, $".~lock.{inputFileInfo.Name}#");
         if (File.Exists(lockFile))
         {
-            _logger?.LogWarning("Found lock file '{LockFile}' for '{InputFile}', deleting it.", lockFile, inputFileInfo.Name);
+            _logger?.LogWarning("Found lock file '{LockFile}' for '{InputFile}', deleting it.", lockFile, inputFileInfo.FullName);
             File.Delete(lockFile);
         }
 
@@ -1061,22 +1071,24 @@ public sealed class Instance : IDisposable
 
         // Derive a filter name from the file extension so LOK does not have to guess.
         var filterName = GetFilterName(inputFileInfo);
-        _logger?.LogDebug("Resolved filter name: '{FilterName}' for file '{InputFile}'", filterName ?? "(auto-detect)", inputFileInfo.Name);
+        _logger?.LogDebug("Resolved filter name '{FilterName}' for file '{InputFile}'", filterName ?? "(auto-detect)", inputFileInfo.Name);
 
         var optionsList = new List<string> 
         { 
             "Hidden=true", 
             "ReadOnly=true",
             "UpdateDocMode=0",
+            "MacroExecutionMode=0",
             "InteractionHandler=0",
-            "Batch=1"
+            "Batch=1",
+            "Silent=true"          
         };
 
         if (!string.IsNullOrEmpty(filterName)) optionsList.Add($"FilterName={filterName}");
 
         var options = string.Join(",", optionsList);
 
-        _logger?.LogInformation("Loading document: '{InputFile}' with options: '{Options}'", inputFileInfo.FullName, options);
+        _logger?.LogInformation("Loading document '{InputFile}' with options '{Options}'", inputFileInfo.FullName, options);
 
         IntPtr pDoc;
         if (_officeClass.documentLoadWithOptions != IntPtr.Zero)
