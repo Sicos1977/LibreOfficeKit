@@ -63,6 +63,15 @@ internal static class Program
     /// </returns>
     private static async Task<int> Main(string[] args)
     {
+        var disabledLibs = 
+            "abp avmediagst avmediavlc cmdmail losessioninstall OGLTrans PresenterScreen " +
+            "syssh ucpftp1 ucpgio1 ucphier1 ucpimage updatecheckui updatefeed updchk " +
+            "dbaxml dbmm dbp dbu deployment firebird_sdbc mork " +
+            "mysql mysqlc odbc postgresql-sdbc postgresql-sdbc-impl sdbc2 sdbt " +
+            "javaloader javavm jdbc rpt rptui rptxml ";
+
+        Environment.SetEnvironmentVariable("UNODISABLELIBRARY", disabledLibs, EnvironmentVariableTarget.Process);
+
         if (args is ["--worker", _, ..])
         {
             try
@@ -116,15 +125,6 @@ internal static class Program
     /// <returns>0 if the conversion succeeds; otherwise, 1.</returns>
     private static int RunDirectConversion(string inputFile, string? outputFile)
     {
-        var disabledLibs = 
-            "abp avmediagst avmediavlc cmdmail losessioninstall OGLTrans PresenterScreen " +
-            "syssh ucpftp1 ucpgio1 ucphier1 ucpimage updatecheckui updatefeed updchk " +
-            "dbaxml dbmm dbp dbu deployment firebird_sdbc mork " +
-            "mysql mysqlc odbc postgresql-sdbc postgresql-sdbc-impl sdbc2 sdbt " +
-            "javaloader javavm jdbc rpt rptui rptxml ";
-
-        Environment.SetEnvironmentVariable("UNODISABLELIBRARY", disabledLibs, EnvironmentVariableTarget.Process);
-
         using var logger = new Logging.ConsoleLogger(minLevel: LogLevel.Debug);
 
         try
