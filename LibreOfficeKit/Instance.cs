@@ -1053,7 +1053,7 @@ public sealed class Instance : IDisposable
         var lockFile = Path.Combine(inputFileInfo.DirectoryName ?? string.Empty, $".~lock.{inputFileInfo.Name}#");
         if (File.Exists(lockFile))
         {
-            _logger?.LogWarning("Found lock file for '{InputFile}', deleting it.", inputFile);
+            _logger?.LogWarning("Found lock file '{LockFile}' for '{InputFile}', deleting it.", lockFile, inputFileInfo.Name);
             File.Delete(lockFile);
         }
 

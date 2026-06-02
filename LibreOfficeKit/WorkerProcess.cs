@@ -28,7 +28,6 @@ using LibreOfficeKit.Enums;
 using LibreOfficeKit.Logging;
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;
-using System.Diagnostics;
 using System.IO.Pipes;
 
 // ReSharper disable UnusedMember.Global
@@ -109,7 +108,7 @@ public static class WorkerProcess
                         break;
 
                     case ConvertRequest convert:
-                        await HandleConvertAsync(office, convert, writer, logger).ConfigureAwait(false);
+                        await HandleConvertAsync(office, convert, writer).ConfigureAwait(false);
                         break;
 
                     case ReadyRequest:
@@ -149,8 +148,7 @@ public static class WorkerProcess
     /// <param name="office">The active LibreOffice instance.</param>
     /// <param name="request">The conversion request containing input/output paths and optional filter options.</param>
     /// <param name="writer">The stream writer for sending the response.</param>
-    /// <param name="logger">The logger for logging messages.</param>
-    private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer, ILogger logger)
+    private static async Task HandleConvertAsync(Instance office, ConvertRequest request, StreamWriter writer)
     {
         try
         {
