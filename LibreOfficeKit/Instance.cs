@@ -41,6 +41,8 @@ using System.Text.Json;
 
 #if !NETSTANDARD2_0
 using NativeLibrary = System.Runtime.InteropServices.NativeLibrary;
+// ReSharper disable UseIndexFromEndExpression
+// ReSharper disable ReplaceSubstringWithRangeIndexer
 #endif
 
 namespace LibreOfficeKit;
@@ -84,6 +86,11 @@ public sealed class Instance : IDisposable
     private IntPtr _libraryHandle;
 
     /// <summary>
+    ///     Delegate for the trimMemory function, if available. Used to proactively trim memory after initialization to reduce resident set size.
+    /// </summary>
+    private static TrimMemoryDelegate _trimMemory = null!;
+
+    /// <summary>
     ///     Indicates whether this instance has been disposed.
     /// </summary>
     private bool _disposed;
@@ -122,6 +129,7 @@ public sealed class Instance : IDisposable
 
         var lok = Marshal.PtrToStructure<LibreOfficeKitStruct>(_pOffice);
         _officeClass = Marshal.PtrToStructure<LibreOfficeKitClass>(lok.pClass);
+        _trimMemory = Marshal.GetDelegateForFunctionPointer<TrimMemoryDelegate>(_officeClass.trimMemory);
     }
     #endregion
 
@@ -266,6 +274,16 @@ public sealed class Instance : IDisposable
                 _logger?.LogTrace("[LOK Event] Unhandled type '{Type}': '{Payload}'", callbackType, payload);
                 break;
         }
+    }
+    #endregion
+
+    #region TrimMemory
+    /// <summary>
+    ///     Proactively trims LibreOffice's memory usage by invoking the native trimMemory function, if available.
+    /// </summary>
+    public void TrimMemory()
+    {
+        _trimMemory(_pOffice, 100);
     }
     #endregion
 
@@ -1018,9 +1036,7 @@ public sealed class Instance : IDisposable
         }
 
         installs.Sort((a, b) => a.version.CompareTo(b.version));
-#pragma warning disable IDE0056
         return installs.Count > 0 ? installs[installs.Count - 1].path : null;
-#pragma warning restore IDE0056
     }
     #endregion
 
@@ -1060,6 +1076,8 @@ public sealed class Instance : IDisposable
             throw new FileNotFoundException("Input file not found", inputFile);
         }
         
+        TrimMemory();
+
         // .~lock.test.xlsx#
         var lockFile = Path.Combine(inputFileInfo.DirectoryName ?? string.Empty, $".~lock.{inputFileInfo.Name}#");
         if (File.Exists(lockFile))

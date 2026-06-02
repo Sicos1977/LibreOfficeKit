@@ -126,6 +126,65 @@ internal delegate int LokGetDocsCountFunction(IntPtr pOffice);
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 internal delegate void LokFreeMemoryFunction(IntPtr pOffice, IntPtr pFree);
 
+/// <summary>
+///     Delegate for the poll callback that LibreOffice calls to wait for events. Should return 1 if events were processed, 0 if timed out with no events, or a negative value on error.
+/// </summary>
+/// <param name="data">Pointer to user-defined data.</param>
+/// <param name="timeoutUs">Timeout in microseconds.</param>
+/// <returns>1 if events were processed, 0 if timed out with no events, or a negative value on error.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate int LibreOfficeKitPollCallback(IntPtr data, int timeoutUs);
+
+/// <summary>
+///    Delegate for the wake callback that LibreOffice calls to wake up the event loop when new events are available.
+/// </summary>
+/// <param name="data">Pointer to user-defined data.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void LibreOfficeKitWakeCallback(IntPtr data);
+
+/// <summary>
+///    Delegate for the <c>libreofficekit_run_loop</c> entry point, which runs the event loop with the provided poll and wake callbacks.
+/// </summary>
+/// <param name="kit">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="pollCallback">Pointer to the poll callback function.</param>
+/// <param name="wakeCallback">Pointer to the wake callback function.</param>
+/// <param name="data">Pointer to user-defined data.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+internal delegate void RunLoopDelegate(
+    IntPtr kit, 
+    LibreOfficeKitPollCallback pollCallback, 
+    LibreOfficeKitWakeCallback wakeCallback, 
+    IntPtr data
+);
+
+/// <summary>
+///     Delegate for the callback that LibreOffice calls in forked child processes after a fork. This allows the application to perform any necessary reinitialization in the child process.
+/// </summary>
+/// <param name="data">Pointer to user-defined data.</param>
+[UnmanagedFunctionPointer( CallingConvention.Cdecl)]
+public delegate void LibreOfficeKitForkedChildCallback(IntPtr data);
+
+/// <summary>
+///    Delegate for the <c>libreofficekit_set_forked_child_callback</c> entry point, which registers a callback to be called in forked child processes after a fork.
+/// </summary>
+/// <param name="kit">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="callback">Pointer to the callback function to be called in forked child processes.</param>
+/// <param name="data">Pointer to user-defined data.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public delegate void SetForkedChildDelegate(
+    IntPtr kit, 
+    LibreOfficeKitForkedChildCallback callback, 
+    IntPtr data
+);
+
+/// <summary>
+///   Delegate for the <c>libreofficekit_trim_memory</c> entry point, which allows the application to request that LibreOffice trim its memory usage when the system is under memory pressure. The nTarget parameter indicates the severity of memory pressure, with higher values indicating more severe pressure.
+/// </summary>
+/// <param name="kit">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="nTarget">The severity of memory pressure, with higher values indicating more severe pressure.</param>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public delegate void TrimMemoryDelegate(IntPtr kit, int nTarget);
+
 #if NETSTANDARD2_0
 
 /// <summary>

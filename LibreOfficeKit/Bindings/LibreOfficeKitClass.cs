@@ -7,7 +7,7 @@ namespace LibreOfficeKit.Bindings;
 ///     Field order must match the native C header exactly (LibreOfficeKit.h, master branch).
 /// </summary>
 [StructLayout(LayoutKind.Sequential)]
-internal struct LibreOfficeKitClass
+public struct LibreOfficeKitClass
 {
     /// <summary>Size of this struct in bytes.</summary>
     public nuint nSize;
