@@ -35,6 +35,7 @@
 // each with its own isolated LibreOfficeKit instance.
 // =============================================================================
 
+using System.CommandLine;
 using LibreOfficeKit;
 using LibreOfficeKit.Logging;
 using Microsoft.Extensions.Logging;
@@ -76,29 +77,92 @@ internal static class Program
 
         Environment.SetEnvironmentVariable("UNODISABLELIBRARY", disabledLibs, EnvironmentVariableTarget.Process);
 
-        if (args is ["--worker", _, ..])
+        // 1. Define Options and Arguments using 2.0.8 canonical syntax
+        var workerOption = new Option<bool>("--worker") { Description = "Start the application as a worker process." };
+
+        var pipeNameOption = new Option<string>("--pipename", "-p") { Description = "The name of the pipe for the worker process." };
+
+        var logLevelOption = new Option<LogLevel>("--loglevel", "-l")
         {
-            try
+            Description = "The log level for the worker process.",
+            DefaultValueFactory = _ => LogLevel.Information
+        };
+
+        var installPathOption = new Option<string>("--installpath", "-i") { Description = "The custom installation path for LibreOffice." };
+        var inputFileArgument = new Argument<FileInfo>("input") { Description = "The input file to convert." };
+        var outputFileArgument = new Argument<FileInfo>("output") { Description = "The optional output file.", Arity = ArgumentArity.ZeroOrOne };
+
+        var rootCommand = new RootCommand("LIBREOFFICE DOCUMENT TO PDF CONVERTER");
+        rootCommand.Options.Add(workerOption);
+        rootCommand.Options.Add(pipeNameOption);
+        rootCommand.Options.Add(logLevelOption);
+        rootCommand.Options.Add(installPathOption);
+        rootCommand.Arguments.Add(inputFileArgument);
+        rootCommand.Arguments.Add(outputFileArgument);
+        rootCommand.SetAction(async parseResult =>
+        {
+            var isWorker = parseResult.GetValue(workerOption);
+            var pipeName = parseResult.GetValue(pipeNameOption);
+            var logLevel = parseResult.GetValue(logLevelOption);
+            var installPath = parseResult.GetValue(installPathOption);
+            var inputFile = parseResult.GetValue(inputFileArgument);
+            var outputFile = parseResult.GetValue(outputFileArgument);
+
+            if (!string.IsNullOrWhiteSpace(installPath))
             {
-                var pipeName = args[1];
-                if (args[2] == "--loglevel" && Enum.TryParse<LogLevel>(args[3], true, out var logLevel))
-                    return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+                // Set your environment variable or static properties here
             }
-            catch (Exception exception)
+
+            if (isWorker)
             {
-                await Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}', error: '{exception.Message}'").ConfigureAwait(false);
+                if (string.IsNullOrWhiteSpace(pipeName))
+                {
+                    await Console.Error.WriteLineAsync("Error: '--pipename' is required when '--worker' is specified.");
+                    return 1;
+                }
+
+                try
+                {
+                    return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+                }
+                catch (Exception exception)
+                {
+                    await Console.Error.WriteLineAsync($"Worker process error: '{exception.Message}'");
+                    return 1;
+                }
+            }
+
+            ShowHeader();
+
+            if (inputFile == null)
+            {
+                Console.WriteLine("Usage:");
+                Console.WriteLine("  LibreOfficeKit.Console <input> [output] [--installpath <path>]");
+                Console.WriteLine("  LibreOfficeKit.Console --worker --pipename <pipeName> [--loglevel <Trace|Debug|...>] [--installpath <path>]");
                 return 0;
             }
 
-            await Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}").ConfigureAwait(false);
-            return 0;
-        }
+            if (!inputFile.Exists)
+            {
+                await Console.Error.WriteLineAsync($"Error: Input file '{inputFile.FullName}' does not exist.");
+                return 1;
+            }
 
-        // Automatically retrieve the version number of the executing assembly
+            var inputPath = inputFile.FullName;
+            var outputPath = outputFile?.FullName ?? Path.ChangeExtension(inputPath, ".pdf");
+
+            return RunDirectConversion(inputPath, outputPath);
+        });
+
+        return await rootCommand.Parse(args).InvokeAsync();
+    }
+    #endregion
+
+    private static void ShowHeader()
+    {
         var version = Assembly.GetExecutingAssembly().GetName().Version;
         var versionText = $"Version {version?.ToString(3) ?? "1.0.1"}";
 
-        // Center the title and version text within the standard 80-character width
         const string title = "LIBREOFFICE DOCUMENT TO PDF CONVERTER";
         var paddedTitle = title.PadLeft((80 + title.Length) / 2).PadRight(80);
         var paddedVersion = versionText.PadLeft((80 + versionText.Length) / 2).PadRight(80);
@@ -107,28 +171,11 @@ internal static class Program
         Console.WriteLine(paddedTitle);
         Console.WriteLine(paddedVersion);
         Console.WriteLine("================================================================================");
-        Console.WriteLine(" Developed by : Kees van Spelde                                                 ");
-        Console.WriteLine(" Source code  : https://github.com/Sicos1977/LibreOfficeKit                   ");
+        Console.WriteLine(" Developed by : Kees van Spelde ");
+        Console.WriteLine(" Source code : https://github.com ");
         Console.WriteLine("================================================================================");
         Console.WriteLine();
-
-        if (args.Length >= 1)
-        {
-            var inputFile = args[0];
-            var outputFile = args.Length > 1
-                ? args[1]
-                : Path.ChangeExtension(inputFile, ".pdf");
-
-            return RunDirectConversion(inputFile, outputFile);
-        }
-
-        // No arguments — show usage
-        Console.WriteLine("Usage:");
-        Console.WriteLine("  LibreOfficeKit.Console <input> [output]");
-        Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName> [--loglevel <Trace|Debug|Information|Warning|Error|Critical|None>]");
-        return 0;
     }
-    #endregion
     
     #region RunDirectConversion
     /// <summary>

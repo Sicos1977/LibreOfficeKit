@@ -47,8 +47,9 @@ public static class WorkerProcess
     /// </summary>
     /// <param name="pipeName">The named pipe to connect to (created by <see cref="Converter" />).</param>
     /// <param name="logLevel">The minimum log level for the worker process.</param>
+    /// <param name="installPath">The custom installation path for LibreOffice.</param>
     /// <returns>Exit code: 0 = clean shutdown, 1 = error.</returns>
-    public static async Task<int> RunAsync(string pipeName, LogLevel logLevel = LogLevel.None)
+    public static async Task<int> RunAsync(string pipeName, LogLevel logLevel = LogLevel.None, string? installPath = null)
     {
         var pipeClient = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous);
 
@@ -71,7 +72,9 @@ public static class WorkerProcess
         try
         {
             logger.LogInformation("Initializing LibreOffice instance");
-            var installPath = Instance.FindInstallPath();
+            if (string.IsNullOrWhiteSpace(installPath))
+                installPath = Instance.FindInstallPath();
+
             if (installPath == null)
             {
                 logger.LogError("LibreOffice installation not found");

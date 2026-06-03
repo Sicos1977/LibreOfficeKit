@@ -98,6 +98,11 @@ public class Converter : IAsyncDisposable
     private readonly string? _workerExePath;
 
     /// <summary>
+    ///     The custom installation path for LibreOffice. If null, the worker will attempt to auto-detect the installation path.
+    /// </summary>
+    private readonly string? _installPath;
+
+    /// <summary>
     ///     Collection of idle workers available for use.
     /// </summary>
     private readonly ConcurrentBag<WorkerHandle> _availableWorkers = [];
@@ -170,7 +175,8 @@ public class Converter : IAsyncDisposable
     /// <param name="idleTimeout">Time after which idle workers (beyond hot standby) are shut down.</param>
     /// <param name="workerExePath">Optional path to the worker executable. If null or empty, it will be resolved automatically.</param>
     /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
-    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger<Converter>? logger = null)
+    /// <param name="installPath">Optional custom installation path for LibreOffice.</param>
+    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger<Converter>? logger = null, string? installPath = null)
     {
         _logger = logger ?? NullLogger<Converter>.Instance;
 
@@ -200,6 +206,12 @@ public class Converter : IAsyncDisposable
         }
         else
             _workerExePath = ResolveWorkerExePath();
+
+        if (!string.IsNullOrWhiteSpace(installPath))
+        {
+            _installPath = installPath;
+            _logger.LogDebug("LibreOffice installation path '{InstallPath}'", _installPath);
+        }
 
         if (string.IsNullOrWhiteSpace(_workerExePath))
             throw new InvalidOperationException("Worker executable path could not be resolved, try to specify it explicitly.");
@@ -524,10 +536,15 @@ public class Converter : IAsyncDisposable
         try
         {
             var logLevel = GetMinimumLogLevel();
+            var arguments = $"--worker {pipeName} --loglevel {logLevel}";
+
+            if (!string.IsNullOrWhiteSpace(_installPath))
+                arguments += $" --installpath \"{_installPath}\"";
+
             process = Process.Start(new ProcessStartInfo
             {
                 FileName = _workerExePath!,
-                Arguments = $"--worker {pipeName} --loglevel {logLevel}",
+                Arguments = arguments,
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardError = true,

@@ -35,6 +35,10 @@
   </ItemGroup>
 
   <ItemGroup>
+    <PackageReference Include="System.CommandLine" Version="2.0.8" />
+  </ItemGroup>
+
+  <ItemGroup>
     <None Update="TestFiles\A DOC word document with 7 embedded files.doc">
       <CopyToOutputDirectory>Always</CopyToOutputDirectory>
     </None>
