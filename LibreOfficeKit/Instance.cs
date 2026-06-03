@@ -322,309 +322,309 @@ public sealed class Instance : IDisposable
             var tempProfile = Path.Combine(Path.GetTempPath(), $"lok_profile_{Guid.NewGuid():N}");
             Directory.CreateDirectory(tempProfile);
 
-                var registryPath = Path.Combine(tempProfile, "user", "registrymodifications.xcu");
-                Directory.CreateDirectory(Path.GetDirectoryName(registryPath)!);
-                File.WriteAllText(registryPath,
-                    /*lang=xml*/
-                    """
-                    <?xml version="1.0" encoding="UTF-8"?>
-                    <oor:items xmlns:oor="http://openoffice.org/2001/registry"
-                               xmlns:xs="http://www.w3.org/2001/XMLSchema"
-                               xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
+            //    var registryPath = Path.Combine(tempProfile, "user", "registrymodifications.xcu");
+            //    Directory.CreateDirectory(Path.GetDirectoryName(registryPath)!);
+            //    File.WriteAllText(registryPath,
+            //        /*lang=xml*/
+            //        """
+            //        <?xml version="1.0" encoding="UTF-8"?>
+            //        <oor:items xmlns:oor="http://openoffice.org/2001/registry"
+            //                   xmlns:xs="http://www.w3.org/2001/XMLSchema"
+            //                   xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">
 
-                      <!-- ===================================================================
-                           SECTION 1: GPU / Hardware Acceleration — Prevent GPU driver hangs
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 1: GPU / Hardware Acceleration — Prevent GPU driver hangs
+            //               =================================================================== -->
 
-                      <!-- Disable OpenGL rendering (can hang on GPU init) -->
-                      <item oor:path="/org.openoffice.Office.Common/VCL">
-                        <prop oor:name="UseOpenGL" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/VCL">
-                        <prop oor:name="ForceOpenGL" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable OpenGL rendering (can hang on GPU init) -->
+            //          <item oor:path="/org.openoffice.Office.Common/VCL">
+            //            <prop oor:name="UseOpenGL" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/VCL">
+            //            <prop oor:name="ForceOpenGL" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable OpenCL (Calc formula acceleration — can hang on GPU init) -->
-                      <item oor:path="/org.openoffice.Office.Common/Misc">
-                        <prop oor:name="UseOpenCL" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable OpenCL (Calc formula acceleration — can hang on GPU init) -->
+            //          <item oor:path="/org.openoffice.Office.Common/Misc">
+            //            <prop oor:name="UseOpenCL" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable hardware acceleration globally -->
-                      <item oor:path="/org.openoffice.Office.Common/VCL">
-                        <prop oor:name="UseHardwareAcceleration" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable hardware acceleration globally -->
+            //          <item oor:path="/org.openoffice.Office.Common/VCL">
+            //            <prop oor:name="UseHardwareAcceleration" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable Skia rendering (newer LO versions) -->
-                      <item oor:path="/org.openoffice.Office.Common/VCL">
-                        <prop oor:name="UseSkia" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/VCL">
-                        <prop oor:name="ForceSkia" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/VCL">
-                        <prop oor:name="ForceSkiaRaster" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable Skia rendering (newer LO versions) -->
+            //          <item oor:path="/org.openoffice.Office.Common/VCL">
+            //            <prop oor:name="UseSkia" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/VCL">
+            //            <prop oor:name="ForceSkia" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/VCL">
+            //            <prop oor:name="ForceSkiaRaster" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable anti-aliasing (reduces rendering complexity) -->
-                      <item oor:path="/org.openoffice.Office.Common/View/FontAntiAliasing">
-                        <prop oor:name="Enabled" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable anti-aliasing (reduces rendering complexity) -->
+            //          <item oor:path="/org.openoffice.Office.Common/View/FontAntiAliasing">
+            //            <prop oor:name="Enabled" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 2: Printer — THE PRIMARY CAUSE of .xlsx/.pptx hangs
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 2: Printer — THE PRIMARY CAUSE of .xlsx/.pptx hangs
+            //               =================================================================== -->
 
-                      <!-- Suppress printer setup dialog -->
-                      <item oor:path="/org.openoffice.Office.Common/Print/Option">
-                        <prop oor:name="PrinterSetupOption" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Suppress printer setup dialog -->
+            //          <item oor:path="/org.openoffice.Office.Common/Print/Option">
+            //            <prop oor:name="PrinterSetupOption" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Reduce print warnings -->
-                      <item oor:path="/org.openoffice.Office.Common/Print/Warning">
-                        <prop oor:name="PaperSize" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/Print/Warning">
-                        <prop oor:name="PaperOrientation" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/Print/Warning">
-                        <prop oor:name="NotFound" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Reduce print warnings -->
+            //          <item oor:path="/org.openoffice.Office.Common/Print/Warning">
+            //            <prop oor:name="PaperSize" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/Print/Warning">
+            //            <prop oor:name="PaperOrientation" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/Print/Warning">
+            //            <prop oor:name="NotFound" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 3: Font / Text — Prevent font enumeration deadlocks
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 3: Font / Text — Prevent font enumeration deadlocks
+            //               =================================================================== -->
 
-                      <!-- Disable font substitution table (triggers full font enumeration) -->
-                      <item oor:path="/org.openoffice.Office.Common/Font/Substitution">
-                        <prop oor:name="Replacement" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable font substitution table (triggers full font enumeration) -->
+            //          <item oor:path="/org.openoffice.Office.Common/Font/Substitution">
+            //            <prop oor:name="Replacement" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable spell checking (loads hunspell + dictionaries) -->
-                      <item oor:path="/org.openoffice.Office.Linguistic/SpellChecking">
-                        <prop oor:name="IsSpellAuto" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Linguistic/SpellChecking">
-                        <prop oor:name="IsSpellSpecial" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable spell checking (loads hunspell + dictionaries) -->
+            //          <item oor:path="/org.openoffice.Office.Linguistic/SpellChecking">
+            //            <prop oor:name="IsSpellAuto" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Linguistic/SpellChecking">
+            //            <prop oor:name="IsSpellSpecial" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable grammar checking -->
-                      <item oor:path="/org.openoffice.Office.Linguistic/GrammarChecking">
-                        <prop oor:name="IsAutoCheck" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable grammar checking -->
+            //          <item oor:path="/org.openoffice.Office.Linguistic/GrammarChecking">
+            //            <prop oor:name="IsAutoCheck" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 4: Macros / Security — Prevent macro execution hangs
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 4: Macros / Security — Prevent macro execution hangs
+            //               =================================================================== -->
 
-                      <!-- Macro security: 4 = run without any dialogs -->
-                      <item oor:path="/org.openoffice.Office.Common/Security/Scripting">
-                        <prop oor:name="MacroSecurityLevel" oor:op="fuse">
-                          <value>3</value>
-                        </prop>
-                      </item>
+            //          <!-- Macro security: 4 = run without any dialogs -->
+            //          <item oor:path="/org.openoffice.Office.Common/Security/Scripting">
+            //            <prop oor:name="MacroSecurityLevel" oor:op="fuse">
+            //              <value>3</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable macro execution entirely for safety -->
-                      <item oor:path="/org.openoffice.Office.Common/Security/Scripting">
-                        <prop oor:name="DisableMacrosExecution" oor:op="fuse">
-                          <value>true</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable macro execution entirely for safety -->
+            //          <item oor:path="/org.openoffice.Office.Common/Security/Scripting">
+            //            <prop oor:name="DisableMacrosExecution" oor:op="fuse">
+            //              <value>true</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 5: Auto-save / Recovery — Prevent background threads
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 5: Auto-save / Recovery — Prevent background threads
+            //               =================================================================== -->
 
-                      <item oor:path="/org.openoffice.Office.Recovery/AutoSave">
-                        <prop oor:name="Enabled" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Recovery/AutoSave">
-                        <prop oor:name="TimeInterval" oor:op="fuse">
-                          <value>0</value>
-                        </prop>
-                      </item>
+            //          <item oor:path="/org.openoffice.Office.Recovery/AutoSave">
+            //            <prop oor:name="Enabled" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Recovery/AutoSave">
+            //            <prop oor:name="TimeInterval" oor:op="fuse">
+            //              <value>0</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 6: Java — Disable JVM loading entirely
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 6: Java — Disable JVM loading entirely
+            //               =================================================================== -->
 
-                      <item oor:path="/org.openoffice.Office.Common/Java/Environment">
-                        <prop oor:name="Enable" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <item oor:path="/org.openoffice.Office.Common/Java/Environment">
+            //            <prop oor:name="Enable" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 7: Network / Update — Prevent network access
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 7: Network / Update — Prevent network access
+            //               =================================================================== -->
 
-                      <item oor:path="/org.openoffice.Office.Common/Misc">
-                        <prop oor:name="FirstRun" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <item oor:path="/org.openoffice.Office.Common/Misc">
+            //            <prop oor:name="FirstRun" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable auto-update checking -->
-                      <item oor:path="/org.openoffice.Office.ExtensionManager/ExtensionUpdateData">
-                        <prop oor:name="TimeLastUpdateCheck" oor:op="fuse">
-                          <value>0</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable auto-update checking -->
+            //          <item oor:path="/org.openoffice.Office.ExtensionManager/ExtensionUpdateData">
+            //            <prop oor:name="TimeLastUpdateCheck" oor:op="fuse">
+            //              <value>0</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 8: CALC-SPECIFIC SETTINGS (Critical for .xlsx)
-                           These settings prevent Calc from initializing subsystems that
-                           can hang during document load.
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 8: CALC-SPECIFIC SETTINGS (Critical for .xlsx)
+            //               These settings prevent Calc from initializing subsystems that
+            //               can hang during document load.
+            //               =================================================================== -->
 
-                      <!-- Disable Calc's automatic calculation on load -->
-                      <!-- This prevents complex formula chains from triggering OpenCL/threading -->
-                      <item oor:path="/org.openoffice.Office.Calc/Calculate">
-                        <prop oor:name="AutoCalculate" oor:op="fuse">
-                          <value>true</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable Calc's automatic calculation on load -->
+            //          <!-- This prevents complex formula chains from triggering OpenCL/threading -->
+            //          <item oor:path="/org.openoffice.Office.Calc/Calculate">
+            //            <prop oor:name="AutoCalculate" oor:op="fuse">
+            //              <value>true</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable iterative calculation (can cause infinite loops) -->
-                      <item oor:path="/org.openoffice.Office.Calc/Calculate">
-                        <prop oor:name="IterationCount" oor:op="fuse">
-                          <value>1</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable iterative calculation (can cause infinite loops) -->
+            //          <item oor:path="/org.openoffice.Office.Calc/Calculate">
+            //            <prop oor:name="IterationCount" oor:op="fuse">
+            //              <value>1</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Force single-threaded formula calculation -->
-                      <!-- Multi-threaded calc can deadlock in LOK in-process mode -->
-                      <item oor:path="/org.openoffice.Office.Calc/Formula/Calculation">
-                        <prop oor:name="UseThreadedCalculationForFormulaGroups" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Force single-threaded formula calculation -->
+            //          <!-- Multi-threaded calc can deadlock in LOK in-process mode -->
+            //          <item oor:path="/org.openoffice.Office.Calc/Formula/Calculation">
+            //            <prop oor:name="UseThreadedCalculationForFormulaGroups" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable Calc's OpenCL for formulas (belt-and-suspenders with env var) -->
-                      <item oor:path="/org.openoffice.Office.Calc/Formula/Calculation">
-                        <prop oor:name="UseOpenCL" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable Calc's OpenCL for formulas (belt-and-suspenders with env var) -->
+            //          <item oor:path="/org.openoffice.Office.Calc/Formula/Calculation">
+            //            <prop oor:name="UseOpenCL" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable Calc input line auto-pilot -->
-                      <item oor:path="/org.openoffice.Office.Calc/Content/Update">
-                        <prop oor:name="Link" oor:op="fuse">
-                          <value>0</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable Calc input line auto-pilot -->
+            //          <item oor:path="/org.openoffice.Office.Calc/Content/Update">
+            //            <prop oor:name="Link" oor:op="fuse">
+            //              <value>0</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable external link updating in Calc (prevents network access) -->
-                      <item oor:path="/org.openoffice.Office.Calc/Content/Update">
-                        <prop oor:name="Link" oor:op="fuse">
-                          <value>0</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable external link updating in Calc (prevents network access) -->
+            //          <item oor:path="/org.openoffice.Office.Calc/Content/Update">
+            //            <prop oor:name="Link" oor:op="fuse">
+            //              <value>0</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 9: IMPRESS-SPECIFIC SETTINGS (Critical for .pptx)
-                           These settings prevent Impress from initializing presentation
-                           subsystems that are unnecessary for conversion.
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 9: IMPRESS-SPECIFIC SETTINGS (Critical for .pptx)
+            //               These settings prevent Impress from initializing presentation
+            //               subsystems that are unnecessary for conversion.
+            //               =================================================================== -->
 
-                      <!-- Disable presentation effects/transitions (triggers rendering init) -->
-                      <item oor:path="/org.openoffice.Office.Impress/Misc">
-                        <prop oor:name="TransitionEffects" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable presentation effects/transitions (triggers rendering init) -->
+            //          <item oor:path="/org.openoffice.Office.Impress/Misc">
+            //            <prop oor:name="TransitionEffects" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable Impress start center -->
-                      <item oor:path="/org.openoffice.Office.Impress/Misc">
-                        <prop oor:name="Start/EnableSdremote" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable Impress start center -->
+            //          <item oor:path="/org.openoffice.Office.Impress/Misc">
+            //            <prop oor:name="Start/EnableSdremote" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- ===================================================================
-                           SECTION 10: UI / Misc — Disable all UI-related features
-                           =================================================================== -->
+            //          <!-- ===================================================================
+            //               SECTION 10: UI / Misc — Disable all UI-related features
+            //               =================================================================== -->
 
-                      <!-- Disable tips and extended tips -->
-                      <item oor:path="/org.openoffice.Office.Common/Help">
-                        <prop oor:name="Tip" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/Help">
-                        <prop oor:name="ExtendedTip" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable tips and extended tips -->
+            //          <item oor:path="/org.openoffice.Office.Common/Help">
+            //            <prop oor:name="Tip" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/Help">
+            //            <prop oor:name="ExtendedTip" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable event sounds (triggers audio subsystem) -->
-                      <item oor:path="/org.openoffice.Office.Common/Accessibility">
-                        <prop oor:name="IsAllowAnimatedGraphics" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
-                      <item oor:path="/org.openoffice.Office.Common/Accessibility">
-                        <prop oor:name="IsAllowAnimatedText" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable event sounds (triggers audio subsystem) -->
+            //          <item oor:path="/org.openoffice.Office.Common/Accessibility">
+            //            <prop oor:name="IsAllowAnimatedGraphics" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
+            //          <item oor:path="/org.openoffice.Office.Common/Accessibility">
+            //            <prop oor:name="IsAllowAnimatedText" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable thumbnails/previews in file dialogs -->
-                      <item oor:path="/org.openoffice.Office.Common/Save/Document">
-                        <prop oor:name="GenerateThumbnail" oor:op="fuse">
-                          <value>false</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable thumbnails/previews in file dialogs -->
+            //          <item oor:path="/org.openoffice.Office.Common/Save/Document">
+            //            <prop oor:name="GenerateThumbnail" oor:op="fuse">
+            //              <value>false</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable recent document list (no file access needed) -->
-                      <item oor:path="/org.openoffice.Office.Common/History">
-                        <prop oor:name="PickListSize" oor:op="fuse">
-                          <value>0</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable recent document list (no file access needed) -->
+            //          <item oor:path="/org.openoffice.Office.Common/History">
+            //            <prop oor:name="PickListSize" oor:op="fuse">
+            //              <value>0</value>
+            //            </prop>
+            //          </item>
 
-                      <!-- Disable extension updating -->
-                      <item oor:path="/org.openoffice.Office.ExtensionManager/ExtensionSecurity">
-                        <prop oor:name="DisableExtensionInstallation" oor:op="fuse">
-                          <value>true</value>
-                        </prop>
-                      </item>
+            //          <!-- Disable extension updating -->
+            //          <item oor:path="/org.openoffice.Office.ExtensionManager/ExtensionSecurity">
+            //            <prop oor:name="DisableExtensionInstallation" oor:op="fuse">
+            //              <value>true</value>
+            //            </prop>
+            //          </item>
 
-                    </oor:items>
-                    """);
+            //        </oor:items>
+            //        """);
 
                 var profileUrl = PathToFileUrl(tempProfile);
 #if NETSTANDARD2_0
@@ -668,6 +668,16 @@ public sealed class Instance : IDisposable
                 //    var startThreads = Marshal.GetDelegateForFunctionPointer<LokStartThreadsFunction>(vtable.startThreads);
                 //    startThreads(pOffice);
                 //}
+
+                if (vtable.setOptionalFeatures != IntPtr.Zero)
+                {
+                    var setOptionalFeatures = Marshal.GetDelegateForFunctionPointer<LokSetOptionalFeaturesFunction>(vtable.setOptionalFeatures);
+
+                    var features = OptionalFeatures.NoTiledAnnotations;
+
+                    setOptionalFeatures(pOffice, (ulong)features);
+                    _logger?.LogDebug("Optional features set to '{Features}'", features);
+                }
 
                 stopwatch.Stop();
 
@@ -1092,15 +1102,24 @@ public sealed class Instance : IDisposable
         var filterName = GetFilterName(inputFileInfo);
         _logger?.LogDebug("Resolved filter name '{FilterName}' for file '{InputFile}'", filterName ?? "(auto-detect)", inputFileInfo.Name);
 
+        //var optionsList = new List<string> 
+        //{ 
+        //    "ReadOnly=true",
+        //    "OpenNewView=true",
+        //    "Hidden=true",
+        //    "Silent=true",
+        //    "UpdateDocMode=0",
+        //    "MacroExecutionMode=0",
+        //    "InteractionHandler=0",
+        //    "Batch=1"          
+        //};
+
         var optionsList = new List<string> 
         { 
-            "Hidden=true", 
             "ReadOnly=true",
-            "UpdateDocMode=0",
-            "MacroExecutionMode=0",
-            "InteractionHandler=0",
-            "Batch=1",
-            "Silent=true"          
+            "OpenNewView=true",
+            "Hidden=true",
+            "Silent=true"
         };
 
         if (!string.IsNullOrEmpty(filterName)) optionsList.Add($"FilterName={filterName}");

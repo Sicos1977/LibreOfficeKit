@@ -185,6 +185,20 @@ public delegate void SetForkedChildDelegate(
 [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
 public delegate void TrimMemoryDelegate(IntPtr kit, int nTarget);
 
+/// <summary>
+///     Delegate for the <c>libreofficekit_initialize</c> entry point, which initializes a LibreOfficeKit instance with the specified user and profile paths. This is an alternative to the hook functions and allows for more direct control over initialization parameters.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="pUserPath">Pointer to a UTF-8 encoded string containing the user path.</param>
+/// <param name="pProfilePath">Pointer to a UTF-8 encoded string containing the profile path.</param>
+/// <returns>0 on success, or a negative value on error.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+public delegate int LokInitializeFunction(
+    IntPtr pOffice,
+    [MarshalAs(UnmanagedType.LPStr)] string pUserPath,
+    [MarshalAs(UnmanagedType.LPStr)] string pProfilePath
+);
+
 #if NETSTANDARD2_0
 
 /// <summary>

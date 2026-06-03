@@ -63,12 +63,13 @@ internal static class Program
     /// </returns>
     private static async Task<int> Main(string[] args)
     {
-        var disabledLibs = 
-            "abp avmediagst avmediavlc cmdmail losessioninstall OGLTrans PresenterScreen " +
-            "syssh ucpftp1 ucpgio1 ucphier1 ucpimage updatecheckui updatefeed updchk " +
-            "dbaxml dbmm dbp dbu deployment firebird_sdbc mork " +
-            "mysql mysqlc odbc postgresql-sdbc postgresql-sdbc-impl sdbc2 sdbt " +
-            "javaloader javavm jdbc rpt rptui rptxml ";
+        // ReSharper disable StringLiteralTypo
+        const string disabledLibs = "abp avmediagst avmediavlc cmdmail losessioninstall OGLTrans PresenterScreen " +
+                                    "syssh ucpftp1 ucpgio1 ucphier1 ucpimage updatecheckui updatefeed updchk " +
+                                    "dbaxml dbmm dbp dbu deployment firebird_sdbc mork " +
+                                    "mysql mysqlc odbc postgresql-sdbc postgresql-sdbc-impl sdbc2 sdbt " +
+                                    "javaloader javavm jdbc rpt rptui rptxml ";
+        // ReSharper restore StringLiteralTypo
 
         Environment.SetEnvironmentVariable("UNODISABLELIBRARY", disabledLibs, EnvironmentVariableTarget.Process);
 
