@@ -1,0 +1,49 @@
+{
+  "$schema": "https://raw.githubusercontent.com/dotnet/docfx/main/schemas/docfx.schema.json",
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": [ "**/*.csproj" ],
+          "exclude": [ "**/obj/**", "**/bin/**", "LibreOfficeKit.Console/**" ],
+          "src": "../"
+        }
+      ],
+      "dest": "api",
+      "disableGitFeatures": false,
+      "disableDefaultFilter": false
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": [ "api/**.yml", "api/index.md" ]
+      },
+      {
+        "files": [ "*.md", "articles/**.md", "toc.yml" ],
+        "exclude": [ "_site/**" ]
+      }
+    ],
+    "resource": [
+      {
+        "files": [ "images/**" ]
+      }
+    ],
+    "dest": "_site",
+    "globalMetadataFiles": [],
+    "fileMetadataFiles": [],
+    "template": [ "default", "modern" ],
+    "postProcessors": [],
+    "globalMetadata": {
+      "_appTitle": "LibreOfficeKit",
+      "_appName": "LibreOfficeKit",
+      "_appFooter": "Copyright &copy; 2026 Kees van Spelde",
+      "_enableSearch": true,
+      "_appLogoPath": "",
+      "_gitContribute": {
+        "repo": "https://github.com/Sicos1977/LibreOfficeKit",
+        "branch": "main"
+      }
+    }
+  }
+}
