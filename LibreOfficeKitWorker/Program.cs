@@ -40,6 +40,9 @@ using LibreOfficeKit;
 using LibreOfficeKit.Logging;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
+using System.Text.Json;
+using System.Text.Json.Serialization;
+using System.Text.Json.Serialization.Metadata;
 
 namespace LibreOfficeKitWorker;
 
@@ -118,7 +121,7 @@ internal static class Program
 
                 try
                 {
-                    return await WorkerProcess.RunAsync(pipeName, logLevel).ConfigureAwait(false);
+                    return await WorkerProcess.RunAsync(pipeName, logLevel, installPath).ConfigureAwait(false);
                 }
                 catch (Exception exception)
                 {
@@ -156,7 +159,7 @@ internal static class Program
     private static void ShowHeader()
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version;
-        var versionText = $"Version {version?.ToString(3) ?? "1.0.1"}";
+        var versionText = $"Version {version?.ToString(3) ?? "1.0.2"}";
 
         const string title = "LIBREOFFICE DOCUMENT TO PDF CONVERTER";
         var paddedTitle = title.PadLeft((80 + title.Length) / 2).PadRight(80);

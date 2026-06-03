@@ -310,7 +310,7 @@ public sealed class Instance : IDisposable
         installPath = Path.GetFullPath(installPath);
 
         if (!Directory.Exists(installPath))
-            throw new DirectoryNotFoundException($"LibreOffice install path not found: {installPath}");
+            throw new DirectoryNotFoundException($"LibreOffice install path '{installPath}' not found");
 
         var libraryHandle = LoadLokLibrary(installPath);
 
@@ -747,7 +747,7 @@ public sealed class Instance : IDisposable
 
             // Parse JSON to version info object
             // ReSharper disable once RedundantSuppressNullableWarningExpression
-            var versionInfo = JsonSerializer.Deserialize<LibreOfficeVersionInfo>(versionInfoJson!);
+            var versionInfo = JsonSerializer.Deserialize(versionInfoJson!, LibreOfficeKitJsonContext.Default.LibreOfficeVersionInfo);
             if (versionInfo == null)
             {
                 _logger?.LogWarning("Failed to parse version info JSON '{VersionInfoJson}'", versionInfoJson);

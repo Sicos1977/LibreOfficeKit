@@ -1,5 +1,5 @@
 //
-// IpcSerializer.cs
+// IpcJsonContext.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -24,38 +24,27 @@
 // THE SOFTWARE.
 //
 
-using System.Text.Json;
+using Microsoft.Extensions.Logging;
+using System.Text.Json.Serialization;
 
 namespace LibreOfficeKit.Protocols;
 
 /// <summary>
-///     Helper for serializing and deserializing IPC messages as JSON lines.
+///     JSON serialization context for IPC protocol types.
+///     This enables source-generated JSON serialization for better performance and trimming support.
 /// </summary>
-internal static class IpcSerializer
-{
-    #region Serialize
-    /// <summary>
-    ///     Serializes an IPC message to a JSON string.
-    /// </summary>
-    /// <typeparam name="T">The message type.</typeparam>
-    /// <param name="message">The message to serialize.</param>
-    /// <returns>A JSON string representation of the message.</returns>
-    public static string Serialize<T>(T message)
-    {
-        return JsonSerializer.Serialize(message, IpcJsonContext.Default.Options);
-    }
-    #endregion
-
-    #region Deserialize
-    /// <summary>
-    ///     Deserializes a JSON string to an IPC message.
-    /// </summary>
-    /// <typeparam name="T">The expected message type.</typeparam>
-    /// <param name="json">The JSON string to deserialize.</param>
-    /// <returns>The deserialized message, or <c>null</c> if deserialization fails.</returns>
-    public static T? Deserialize<T>(string json)
-    {
-        return JsonSerializer.Deserialize<T>(json, IpcJsonContext.Default.Options);
-    }
-    #endregion
-}
+[JsonSourceGenerationOptions(PropertyNamingPolicy = JsonKnownNamingPolicy.CamelCase, WriteIndented = false)]
+[JsonSerializable(typeof(WorkerRequest))]
+[JsonSerializable(typeof(WorkerResponse))]
+[JsonSerializable(typeof(ConvertRequest))]
+[JsonSerializable(typeof(ReadyRequest))]
+[JsonSerializable(typeof(PingRequest))]
+[JsonSerializable(typeof(ShutdownRequest))]
+[JsonSerializable(typeof(ConvertResponse))]
+[JsonSerializable(typeof(ReadyResponse))]
+[JsonSerializable(typeof(PongResponse))]
+[JsonSerializable(typeof(ShutdownResponse))]
+[JsonSerializable(typeof(ErrorResponse))]
+[JsonSerializable(typeof(LogResponse))]
+[JsonSerializable(typeof(LogLevel))]
+internal partial class IpcJsonContext : JsonSerializerContext;
