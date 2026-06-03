@@ -154,9 +154,9 @@ With feature:    "x, y, width, height, part"
 **Purpose:** Disable rendering of annotations (comments, tracked changes) in tiles.
 
 **Performance Impact:**
-- ✅ Reduces rendering complexity
-- ✅ Faster tile generation
-- ✅ Lower memory usage
+- Reduces rendering complexity
+- Faster tile generation
+- Lower memory usage
 
 **Use Case:** Headless conversion where annotations aren't needed or are exported separately.
 
@@ -201,12 +201,12 @@ With feature:    "x, y, width, height, part"
 ⚠️ **Call `SetOptionalFeatures()` BEFORE loading any documents.**
 
 ```csharp
-// ✅ Correct
+// Correct
 var instance = Instance.Create(installPath);
 instance.SetOptionalFeatures(OptionalFeatures.NoTiledAnnotations);
 var doc = instance.DocumentLoad(fileUrl);
 
-// ❌ Wrong - feature may not apply
+// Wrong - feature may not apply
 var instance = Instance.Create(installPath);
 var doc = instance.DocumentLoad(fileUrl);
 instance.SetOptionalFeatures(OptionalFeatures.NoTiledAnnotations); // Too late!

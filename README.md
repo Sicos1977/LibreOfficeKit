@@ -33,10 +33,10 @@ conversions, this project uses a **process pool** architecture:
 | Project                  | Type          | Target          | Description                                                        |
 |--------------------------|---------------|-----------------|--------------------------------------------------------------------|
 | `LibreOfficeKit`         | Class Library | .NET Standard 2.0 | Core library: Converter, WorkerProcess, IPC, LOK bindings, Enums |
-| `LibreOfficeKit.Console` | Console App   | .NET 10         | Worker entry point and optional standalone demo                    |
+| `LibreOfficeKitWorker  ` | Console App   | .NET 10         | Worker entry point and optional standalone demo                    |
 | `LibreOfficeTest`        | Test Project  | .NET 10         | MSTest integration tests                                           |
 
-### `LibreOfficeKit.Console` (Console App)
+### `LibreOfficeKitWorker` (Console App)
 
 | File         | Description                                                    |
 |--------------|----------------------------------------------------------------|
@@ -380,7 +380,7 @@ dotnet build LibreOfficeKit.sln
 
 ### How it works
 
-The `LibreOfficeKit` NuGet package bundles the `LibreOfficeKit.Console` worker executable for all supported
+The `LibreOfficeKit` NuGet package bundles the `LibreOfficeKitWorker` worker executable for all supported
 platforms. The worker is a self-contained, trimmed single-file binary — no .NET installation is required on the
 target machine.
 
@@ -395,13 +395,13 @@ build/
   LibreOfficeKit.targets          ← MSBuild targets, auto-copies the right worker exe
 runtimes/
   win-x64/native/
-    LibreOfficeKit.Console.exe    ← Self-contained worker for Windows x64
+    LibreOfficeKitWorker.exe    ← Self-contained worker for Windows x64
   linux-x64/native/
-    LibreOfficeKit.Console        ← Self-contained worker for Linux x64
+    LibreOfficeKitWorker        ← Self-contained worker for Linux x64
   osx-x64/native/
-    LibreOfficeKit.Console        ← Self-contained worker for macOS Intel
+    LibreOfficeKitWorker        ← Self-contained worker for macOS Intel
   osx-arm64/native/
-    LibreOfficeKit.Console        ← Self-contained worker for macOS Apple Silicon
+    LibreOfficeKitWorker        ← Self-contained worker for macOS Apple Silicon
 lib/
   net10.0/LibreOfficeKit.dll
   netstandard2.0/LibreOfficeKit.dll
@@ -415,7 +415,7 @@ Building the package requires the cross-platform publish tools included with .NE
 dotnet pack LibreOfficeKit/LibreOfficeKit.csproj -c Release
 ```
 
-During packing, MSBuild automatically publishes `LibreOfficeKit.Console` for all four runtime identifiers
+During packing, MSBuild automatically publishes `LibreOfficeKitWorker` for all four runtime identifiers
 (`win-x64`, `linux-x64`, `osx-x64`, `osx-arm64`) before assembling the package. The resulting files are staged
 in `LibreOfficeKit/_WorkerPublish/` (excluded from source control via `.gitignore`) and then embedded in the
 `.nupkg`.

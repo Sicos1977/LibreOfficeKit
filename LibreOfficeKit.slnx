@@ -7,7 +7,6 @@
     <File Path="Docs/articles/pdf-options.md" />
     <File Path="Docs/articles/toc.yml" />
   </Folder>
-  <Folder Name="/Solution Items/" />
   <Folder Name="/Docs/">
     <File Path="Docs/docfx.json" />
     <File Path="Docs/index.md" />
