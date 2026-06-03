@@ -40,9 +40,6 @@ using LibreOfficeKit;
 using LibreOfficeKit.Logging;
 using Microsoft.Extensions.Logging;
 using System.Reflection;
-using System.Text.Json;
-using System.Text.Json.Serialization;
-using System.Text.Json.Serialization.Metadata;
 
 namespace LibreOfficeKitWorker;
 
