@@ -76,6 +76,7 @@ internal static class Program
         // ReSharper restore StringLiteralTypo
 
         Environment.SetEnvironmentVariable("UNODISABLELIBRARY", disabledLibs, EnvironmentVariableTarget.Process);
+        //Environment.SetEnvironmentVariable("G_MESSAGES_DEBUG", "all", EnvironmentVariableTarget.Process);
 
         // 1. Define Options and Arguments using 2.0.8 canonical syntax
         var workerOption = new Option<bool>("--worker") { Description = "Start the application as a worker process." };
@@ -153,6 +154,10 @@ internal static class Program
     }
     #endregion
 
+    #region ShowHeader
+    /// <summary>
+    ///     Shows the application header with version information and developer details. This method retrieves the version
+    /// </summary>
     private static void ShowHeader()
     {
         var version = Assembly.GetExecutingAssembly().GetName().Version;
@@ -171,6 +176,7 @@ internal static class Program
         Console.WriteLine("================================================================================");
         Console.WriteLine();
     }
+    #endregion
     
     #region RunDirectConversion
     /// <summary>
