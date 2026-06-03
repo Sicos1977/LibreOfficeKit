@@ -11,6 +11,8 @@ multi-process worker pool for safe concurrent conversions.
 
 At the moment this package does not work with Excel and Powerpoint files on Windows, I have raised a ticket for this --> https://bugs.documentfoundation.org/show_bug.cgi?id=172283
 
+Update: It seems to be a problem with LibreOffice versions newer than 25.2.6.2, so if you install this version it will work
+
 ## Documentation
 
 [![Documentation](https://img.shields.io/badge/docs-GitHub%20Pages-blue?style=flat-square)](https://sicos1977.github.io/LibreOfficeKit)
