@@ -38,6 +38,7 @@
 using LibreOfficeKit;
 using LibreOfficeKit.Logging;
 using Microsoft.Extensions.Logging;
+using System.Reflection;
 
 namespace LibreOfficeKitWorker;
 
@@ -93,7 +94,22 @@ internal static class Program
             return 0;
         }
 
-        Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
+        // Automatically retrieve the version number of the executing assembly
+        var version = Assembly.GetExecutingAssembly().GetName().Version;
+        var versionText = $"Version {version?.ToString(3) ?? "1.0.1"}";
+
+        // Center the title and version text within the standard 80-character width
+        const string title = "LIBREOFFICE DOCUMENT TO PDF CONVERTER";
+        var paddedTitle = title.PadLeft((80 + title.Length) / 2).PadRight(80);
+        var paddedVersion = versionText.PadLeft((80 + versionText.Length) / 2).PadRight(80);
+
+        Console.WriteLine("================================================================================");
+        Console.WriteLine(paddedTitle);
+        Console.WriteLine(paddedVersion);
+        Console.WriteLine("================================================================================");
+        Console.WriteLine(" Developed by : Kees van Spelde                                                 ");
+        Console.WriteLine(" Source code  : https://github.com/Sicos1977/LibreOfficeKit                   ");
+        Console.WriteLine("================================================================================");
         Console.WriteLine();
 
         if (args.Length >= 1)
