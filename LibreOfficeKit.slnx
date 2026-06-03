@@ -1,5 +1,8 @@
 <Solution>
-  <Folder Name="/Docs/Articels/">
+  <Folder Name="/.github/workflows/">
+    <File Path=".github/workflows/docs.yml" />
+  </Folder>
+  <Folder Name="/Docs/Articles/">
     <File Path="Docs/articles/exception-handling.md" />
     <File Path="Docs/articles/getting-started.md" />
     <File Path="Docs/articles/index.md" />

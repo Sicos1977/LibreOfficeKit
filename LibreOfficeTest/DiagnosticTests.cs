@@ -8,7 +8,7 @@ public class DiagnosticTests
     [TestMethod]
     public void TestWorkerExeExists()
     {
-        var workerPath = @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe";
+        var workerPath = @"..\..\..\..\LibreOfficeKitWorker\bin\Debug\net10.0\LibreOfficeKitWorker.exe";
         Console.WriteLine($"Looking for worker at: {Path.GetFullPath(workerPath)}");
         Console.WriteLine($"Current directory: {Environment.CurrentDirectory}");
         Console.WriteLine($"File exists: {File.Exists(workerPath)}");
@@ -18,7 +18,7 @@ public class DiagnosticTests
     [TestMethod]
     public void TestWorkerCanStart()
     {
-        var workerPath = @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe";
+        var workerPath = @"..\..\..\..\LibreOfficeKitWorker\bin\Debug\net10.0\LibreOfficeKitWorker.exe";
         Console.WriteLine($"Attempting to start worker: {workerPath}");
 
         var startInfo = new ProcessStartInfo

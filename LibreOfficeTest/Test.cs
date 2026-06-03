@@ -386,7 +386,7 @@ public class ConverterTests
         logger.LogInformation("Logger initialized, creating Converter...");
 
         //_converter = new Converter(1, 1, new TimeSpan(0, 5, 0), logger: logger);
-        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKit.Console\bin\Debug\net10.0\LibreOfficeKit.Console.exe", logger);
+        _converter = new Converter(1, 1, new TimeSpan(0, 5, 0), @"..\..\..\..\LibreOfficeKitWorker\bin\Debug\net10.0\LibreOfficeKitWorker.exe", logger);
     }
 
     [ClassCleanup]

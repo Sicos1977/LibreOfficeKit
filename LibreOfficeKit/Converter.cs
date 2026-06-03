@@ -854,13 +854,13 @@ public class Converter : IAsyncDisposable
         var currentExeName = Path.GetFileNameWithoutExtension(entryLocation);
 
         // If running the console app directly, use it
-        if (currentExeName.Equals("LibreOfficeKit.Console.exe", StringComparison.OrdinalIgnoreCase))
+        if (currentExeName.Equals("LibreOfficeKitWorker.exe", StringComparison.OrdinalIgnoreCase))
             return entryLocation;
 
         // Look for console app in the same directory
         var directory = Path.GetDirectoryName(entryLocation);
         if (directory == null) return $"dotnet \"{entryLocation}\"";
-        var consoleExeName = "LibreOfficeKit.Console" + (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".exe" : string.Empty);
+        var consoleExeName = "LibreOfficeKitWorker" + (RuntimeInformation.IsOSPlatform(OSPlatform.Windows) ? ".exe" : string.Empty);
         var consoleExePath = Path.Combine(directory, consoleExeName);
 
         return File.Exists(consoleExePath) ? consoleExePath : $"dotnet \"{entryLocation}\"";
