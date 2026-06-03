@@ -108,11 +108,6 @@ internal static class Program
             var inputFile = parseResult.GetValue(inputFileArgument);
             var outputFile = parseResult.GetValue(outputFileArgument);
 
-            if (!string.IsNullOrWhiteSpace(installPath))
-            {
-                // Set your environment variable or static properties here
-            }
-
             if (isWorker)
             {
                 if (string.IsNullOrWhiteSpace(pipeName))
@@ -151,7 +146,7 @@ internal static class Program
             var inputPath = inputFile.FullName;
             var outputPath = outputFile?.FullName ?? Path.ChangeExtension(inputPath, ".pdf");
 
-            return RunDirectConversion(inputPath, outputPath);
+            return RunDirectConversion(inputPath, outputPath, installPath);
         });
 
         return await rootCommand.Parse(args).InvokeAsync();
@@ -188,15 +183,19 @@ internal static class Program
     /// </remarks>
     /// <param name="inputFile">The path to the input file to be converted. Must refer to an existing file.</param>
     /// <param name="outputFile">The path where the output PDF file will be saved. If null, the output file will have the same name as the input file with a .pdf extension.</param>
+    /// <param name="installPath">Optional custom installation path for LibreOffice.</param>
     /// <returns>0 if the conversion succeeds; otherwise, 1.</returns>
-    private static int RunDirectConversion(string inputFile, string? outputFile)
+    private static int RunDirectConversion(string inputFile, string? outputFile, string? installPath = null)
     {
         using var logger = new ConsoleLogger(minLevel: LogLevel.Debug);
 
         try
         {
             logger.LogInformation("Searching for LibreOffice installation...");
-            var installPath = Instance.FindInstallPath();
+
+            if (string.IsNullOrWhiteSpace(installPath))
+                installPath = Instance.FindInstallPath();
+
             if (installPath == null)
             {
                 logger.LogError("LibreOffice not found");
