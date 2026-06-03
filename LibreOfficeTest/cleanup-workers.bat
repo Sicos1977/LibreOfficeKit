@@ -1,6 +1,6 @@
 @echo off
 echo Killing any remaining worker processes...
-taskkill /F /IM LibreOfficeKit.Console.exe 2>nul
+taskkill /F /IM LibreOfficeKitWorker.exe 2>nul
 if %ERRORLEVEL%==128 (
 	echo No worker processes found
 ) else (
