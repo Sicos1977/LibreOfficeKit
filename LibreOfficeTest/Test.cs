@@ -43,7 +43,7 @@ public class ConverterTests
     [Timeout(10000)]
     public async Task ConvertToPdfAsync_Timeouts_WhenWorkerIsDelayed()
     {
-        var workerPath = Path.Combine(AppContext.BaseDirectory, "LibreOfficeKit.Console.exe");
+        var workerPath = Path.Combine(AppContext.BaseDirectory, "LibreOfficeKitWorker.exe");
         var outputFile = Path.Combine(_tempDirectory.FullName, "timeout.pdf");
 
         var previousDelay = Environment.GetEnvironmentVariable("LOK_WORKER_STARTUP_DELAY_MS");

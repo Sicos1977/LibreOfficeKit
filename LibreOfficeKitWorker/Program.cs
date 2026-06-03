@@ -35,9 +35,11 @@
 // each with its own isolated LibreOfficeKit instance.
 // =============================================================================
 
+using LibreOfficeKit;
+using LibreOfficeKit.Logging;
 using Microsoft.Extensions.Logging;
 
-namespace LibreOfficeKit.Console;
+namespace LibreOfficeKitWorker;
 
 /// <summary>
 ///    Console application entry point. Supports both normal mode (demonstrating the Converter)
@@ -83,16 +85,16 @@ internal static class Program
             }
             catch (Exception exception)
             {
-                await System.Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}', error: '{exception.Message}'").ConfigureAwait(false);
+                await Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}', error: '{exception.Message}'").ConfigureAwait(false);
                 return 0;
             }
 
-            await System.Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}").ConfigureAwait(false);
+            await Console.Error.WriteLineAsync($"Invalid arguments specified '{string.Join(" ", args)}").ConfigureAwait(false);
             return 0;
         }
 
-        System.Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
-        System.Console.WriteLine();
+        Console.WriteLine("=== LibreOffice Document to PDF Converter ===");
+        Console.WriteLine();
 
         if (args.Length >= 1)
         {
@@ -105,9 +107,9 @@ internal static class Program
         }
 
         // No arguments — show usage
-        System.Console.WriteLine("Usage:");
-        System.Console.WriteLine("  LibreOfficeKit.Console <input> [output]");
-        System.Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName> [--loglevel <Trace|Debug|Information|Warning|Error|Critical|None>]");
+        Console.WriteLine("Usage:");
+        Console.WriteLine("  LibreOfficeKit.Console <input> [output]");
+        Console.WriteLine("  LibreOfficeKit.Console --worker <pipeName> [--loglevel <Trace|Debug|Information|Warning|Error|Critical|None>]");
         return 0;
     }
     #endregion
@@ -126,7 +128,7 @@ internal static class Program
     /// <returns>0 if the conversion succeeds; otherwise, 1.</returns>
     private static int RunDirectConversion(string inputFile, string? outputFile)
     {
-        using var logger = new Logging.ConsoleLogger(minLevel: LogLevel.Debug);
+        using var logger = new ConsoleLogger(minLevel: LogLevel.Debug);
 
         try
         {
