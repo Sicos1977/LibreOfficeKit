@@ -162,7 +162,7 @@ public class Converter : IAsyncDisposable
     /// <summary>
     ///     Logger for this instance.
     /// </summary>
-    private readonly ILogger<Converter> _logger;
+    private ILogger<Converter> _logger;
     #endregion
 
     #region Converter
@@ -282,6 +282,7 @@ public class Converter : IAsyncDisposable
     /// <param name="outputFile">Path where the PDF will be written.</param>
     /// <param name="timeout">Optional timeout for the conversion operation, when specified.</param>
     /// <param name="options">Optional <see cref="PdfOptions"/> controlling quality, compliance, security, and layout. When <c>null</c>, the LibreOffice defaults are used.</param>
+    /// <param name="logger">Optional logger for the conversion operation. When <c>null</c>, the default logger is used (when set from the constructor).</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
     /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.TimeoutException">Thrown when the conversion times out.</exception>
@@ -291,54 +292,72 @@ public class Converter : IAsyncDisposable
     /// <remarks>
     ///     Default timeout is 60 minutes, which should be sufficient for even very large documents. Adjust as needed for your use case.
     /// </remarks>
-    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null)
+    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null, ILogger<Converter>? logger = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
-        if (timeout.HasValue && timeout.Value <= TimeSpan.Zero)
-            throw new TimeoutException("Must be greater than zero.");
+        ILogger<Converter>? oldLogger = null;
 
-        timeout ??= TimeSpan.FromMinutes(60);
-
-        if (!File.Exists(inputFile))
-            throw new FileNotFoundException("Input file not found.", inputFile);
-
-        inputFile = Path.GetFullPath(inputFile);
-        outputFile = Path.GetFullPath(outputFile);
-
-        _logger.LogInformation("Converting '{InputFile}' to PDF -> '{OutputFile}'", inputFile, outputFile);
-
-        var outputDir = Path.GetDirectoryName(outputFile);
-        if (outputDir != null && !Directory.Exists(outputDir))
-            Directory.CreateDirectory(outputDir);
-
-        DateTime? deadline = DateTime.UtcNow.Add(timeout.Value);
-
-        await ExecuteOnWorkerAsync(async worker =>
+        try
         {
-            _logger.LogDebug("Dispatching conversion to worker '{PipeName}'", worker.PipeName);
-            var request = new ConvertRequest(inputFile, outputFile, options?.ToFilterOptions());
-            var requestTimeout = GetRemainingTimeout(deadline.Value);
-
-            if (requestTimeout <= TimeSpan.Zero)
-                throw new TimeoutException("Conversion timed out.");
-
-            var response = await worker.ConvertAsync(request, requestTimeout).ConfigureAwait(false);
-
-            if (!response.Success)
+            if (logger != null)
             {
-                _logger.LogError("PDF conversion failed for '{InputFile}': '{Error}'", inputFile, response.Error ?? "Unknown error");
-
-                throw response.ExceptionType switch
-                {
-                    // Re-throw the original exception type if available
-                    nameof(FilePasswordProtectedException) => new FilePasswordProtectedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"),
-                    nameof(FileTypeNotSupportedException) => new FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"), _ => new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'")
-                };
+                oldLogger = _logger;
+                _logger = logger;
             }
 
-            _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
-        }, deadline).ConfigureAwait(false);
+            if (timeout.HasValue && timeout.Value <= TimeSpan.Zero)
+                throw new TimeoutException("Must be greater than zero.");
+
+            timeout ??= TimeSpan.FromMinutes(60);
+
+            if (!File.Exists(inputFile))
+                throw new FileNotFoundException("Input file not found.", inputFile);
+
+            inputFile = Path.GetFullPath(inputFile);
+            outputFile = Path.GetFullPath(outputFile);
+
+            _logger.LogInformation("Converting '{InputFile}' to PDF -> '{OutputFile}'", inputFile, outputFile);
+
+            var outputDir = Path.GetDirectoryName(outputFile);
+            if (outputDir != null && !Directory.Exists(outputDir))
+                Directory.CreateDirectory(outputDir);
+
+            DateTime? deadline = DateTime.UtcNow.Add(timeout.Value);
+
+            await ExecuteOnWorkerAsync(async worker =>
+            {
+                _logger.LogDebug("Dispatching conversion to worker '{PipeName}'", worker.PipeName);
+                var request = new ConvertRequest(inputFile, outputFile, options?.ToFilterOptions());
+                var requestTimeout = GetRemainingTimeout(deadline.Value);
+
+                if (requestTimeout <= TimeSpan.Zero)
+                    throw new TimeoutException("Conversion timed out.");
+
+                var response = await worker.ConvertAsync(request, requestTimeout).ConfigureAwait(false);
+
+                if (!response.Success)
+                {
+                    _logger.LogError("PDF conversion failed for '{InputFile}': '{Error}'", inputFile, response.Error ?? "Unknown error");
+
+                    throw response.ExceptionType switch
+                    {
+                        // Re-throw the original exception type if available
+                        nameof(FilePasswordProtectedException) => new FilePasswordProtectedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"),
+                        nameof(FileTypeNotSupportedException) => new FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"), _ => new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'")
+                    };
+                }
+
+                _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
+            }, deadline).ConfigureAwait(false);
+        }
+        finally
+        {
+            if (oldLogger != null)
+            {
+                _logger = oldLogger;
+            }   
+        }
     }
 
     /// <summary>
@@ -350,11 +369,12 @@ public class Converter : IAsyncDisposable
     /// <param name="outputStream">Stream where the PDF will be written.</param>
     /// <param name="timeout">Optional timeout for the conversion operation, when specified.</param>
     /// <param name="options">Optional <see cref="PdfOptions"/> controlling quality, compliance, security, and layout. When <c>null</c>, the LibreOffice defaults are used.</param>
+    /// <param name="logger">Optional <see cref="ILogger{Converter}"/> for logging conversion progress and errors.</param>
     /// <exception cref="ArgumentOutOfRangeException">Thrown when the timeout is less than or equal to zero.</exception>
     /// <exception cref="FileNotFoundException">Thrown when the input file does not exist.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.TimeoutException">Thrown when the conversion times out.</exception>
     /// <exception cref="LibreOfficeKit.Exceptions.ConversionFailedException">Thrown when the conversion fails.</exception>
-    public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream, TimeSpan? timeout = null, PdfOptions? options = null)
+    public async Task ConvertToPdfAsync(Stream inputStream, Stream outputStream, TimeSpan? timeout = null, PdfOptions? options = null, ILogger<Converter>? logger = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
@@ -375,7 +395,7 @@ public class Converter : IAsyncDisposable
             await using var inputFileStream = File.Create(tempInputFile);
             await inputStream.CopyToAsync(inputFileStream).ConfigureAwait(false);
 
-            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout, options).ConfigureAwait(false);
+            await ConvertToPdfAsync(tempInputFile, tempOutputFile, timeout, options, logger).ConfigureAwait(false);
 
             await using var outputFileStream = File.OpenRead(tempOutputFile);
             await outputFileStream.CopyToAsync(outputStream).ConfigureAwait(false);
