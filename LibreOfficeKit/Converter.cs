@@ -161,7 +161,7 @@ public class Converter : IAsyncDisposable
     /// <summary>
     ///     Logger for this instance.
     /// </summary>
-    private ILogger<Converter> _logger;
+    private ILogger _logger;
     #endregion
 
     #region Converter
@@ -175,7 +175,7 @@ public class Converter : IAsyncDisposable
     /// <param name="workerExePath">Optional path to the worker executable. If null or empty, it will be resolved automatically.</param>
     /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
     /// <param name="installPath">Optional custom installation path for LibreOffice.</param>
-    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger<Converter>? logger = null, string? installPath = null)
+    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger? logger = null, string? installPath = null)
     {
         _logger = logger ?? NullLogger<Converter>.Instance;
 
@@ -291,11 +291,11 @@ public class Converter : IAsyncDisposable
     /// <remarks>
     ///     Default timeout is 60 minutes, which should be sufficient for even very large documents. Adjust as needed for your use case.
     /// </remarks>
-    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null, ILogger<Converter>? logger = null)
+    public async Task ConvertToPdfAsync(string inputFile, string outputFile, TimeSpan? timeout = null, PdfOptions? options = null, ILogger? logger = null)
     {
         if (_disposed) throw new ObjectDisposedException(GetType().FullName);
 
-        ILogger<Converter>? oldLogger = null;
+        ILogger? oldLogger = null;
 
         try
         {
