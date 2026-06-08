@@ -38,7 +38,6 @@
 //   - IDisposable: proper cleanup of all workers and resources
 // =============================================================================
 
-using LibreOfficeKit.Enums;
 using LibreOfficeKit.Exceptions;
 using LibreOfficeKit.Protocols;
 using Microsoft.Extensions.Logging;

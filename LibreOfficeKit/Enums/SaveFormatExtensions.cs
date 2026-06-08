@@ -28,7 +28,7 @@ namespace LibreOfficeKit.Enums;
 /// <summary>
 ///     Extension methods for <see cref="SaveFormat" />.
 /// </summary>
-public static class SaveFormatExtensions
+internal static class SaveFormatExtensions
 {
     #region ToFormatString
     /// <summary>

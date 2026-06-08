@@ -38,7 +38,7 @@ namespace LibreOfficeKit;
 ///     Runs the worker loop: connects to the host pipe, initializes LibreOfficeKit,
 ///     and processes conversion requests until shutdown or pipe disconnect.
 /// </summary>
-public static class WorkerProcess
+internal static class WorkerProcess
 {
     #region RunAsync
     /// <summary>

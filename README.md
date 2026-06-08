@@ -84,7 +84,7 @@ await converter.ConvertToPdfAsync(
 ### With PDF options
 
 ```csharp
-using LibreOfficeKit.Enums;
+using LibreOfficeKit;
 
 var options = new PdfOptions
 {

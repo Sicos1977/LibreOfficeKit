@@ -1,5 +1,5 @@
-﻿//
-// PdfACompliance.cs
+//
+// AssemblyInfo.cs
 //
 // Author: Kees van Spelde <sicos2002@hotmail.com>
 //
@@ -23,32 +23,9 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-// ReSharper disable UnusedMember.Global
-namespace LibreOfficeKit.Enums;
 
-/// <summary>
-///     Legacy PDF/A compliance level enum. Kept for backwards compatibility.
-///     Prefer using <see cref="PdfVersion" /> for new code.
-/// </summary>
-public enum PdfACompliance
-{
-    /// <summary>
-    ///     No PDF/A compliance â€” uses default PDF 1.7.
-    /// </summary>
-    None = 0,
+using System.Runtime.CompilerServices;
 
-    /// <summary>
-    ///     PDF/A-1b (ISO 19005-1:2005).
-    /// </summary>
-    Level1B = 1,
-
-    /// <summary>
-    ///     PDF/A-2b (ISO 19005-2:2011).
-    /// </summary>
-    Level2B = 2,
-
-    /// <summary>
-    ///     PDF/A-3b (ISO 19005-3:2012).
-    /// </summary>
-    Level3B = 3
-}
+// Make internal types visible to LibreOfficeKitWorker and test project
+[assembly: InternalsVisibleTo("LibreOfficeKitWorker")]
+[assembly: InternalsVisibleTo("LibreOfficeTest")]

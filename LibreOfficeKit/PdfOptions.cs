@@ -24,7 +24,10 @@
 // THE SOFTWARE.
 //
 // ReSharper disable UnusedMember.Global
-namespace LibreOfficeKit.Enums;
+
+using LibreOfficeKit.Enums;
+
+namespace LibreOfficeKit;
 
 /// <summary>
 ///     PDF export options that map to LibreOffice FilterData parameters.

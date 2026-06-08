@@ -23,6 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
+// ReSharper disable UnusedMember.Global
 namespace LibreOfficeKit.Enums;
 
 /// <summary>
@@ -39,6 +40,7 @@ public enum PdfChangePermission
     /// <summary>
     ///     Inserting, deleting, and rotating pages is allowed. LibreOffice value: 1.
     /// </summary>
+    // ReSharper disable once UnusedMember.Global
     InsertDeletePages = 1,
 
     /// <summary>

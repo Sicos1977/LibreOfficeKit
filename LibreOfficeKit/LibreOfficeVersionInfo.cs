@@ -5,8 +5,9 @@ namespace LibreOfficeKit;
 /// <summary>
 ///     Represents version information returned by LibreOfficeKit.
 /// </summary>
-public sealed class LibreOfficeVersionInfo
+internal sealed class LibreOfficeVersionInfo
 {
+    #region Properties
     /// <summary>
     ///     Gets or sets the product name (typically "LibreOffice").
     /// </summary>
@@ -36,7 +37,9 @@ public sealed class LibreOfficeVersionInfo
     /// </summary>
     [JsonIgnore]
     public string FullVersion => ProductVersion + ProductExtension;
+    #endregion
 
+    #region ToString
     /// <summary>
     ///     Returns a formatted string representation of the version information.
     /// </summary>
@@ -44,4 +47,5 @@ public sealed class LibreOfficeVersionInfo
     {
         return $"{ProductName} {FullVersion} (Build: {BuildId})";
     }
+    #endregion
 }

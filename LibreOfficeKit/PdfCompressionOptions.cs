@@ -23,7 +23,7 @@
 // OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 // THE SOFTWARE.
 //
-namespace LibreOfficeKit.Enums;
+namespace LibreOfficeKit;
 
 /// <summary>
 ///     Image quality and compression settings for PDF export.

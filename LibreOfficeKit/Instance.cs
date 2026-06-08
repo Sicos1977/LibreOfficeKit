@@ -51,7 +51,7 @@ namespace LibreOfficeKit;
 ///     Main LibreOffice instance managing the LOK lifecycle.
 ///     Only one instance may be active at a time within a single process.
 /// </summary>
-public sealed class Instance : IDisposable
+internal sealed class Instance : IDisposable
 {
     #region Fields
 #if NET10_0_OR_GREATER

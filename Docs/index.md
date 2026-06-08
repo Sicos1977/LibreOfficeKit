@@ -46,7 +46,7 @@ conversions, this project uses a **process pool** architecture:
 ### With PDF Options
 
 ```csharp
-using LibreOfficeKit.Enums;
+using LibreOfficeKit;
 
 var options = new PdfOptions
 {
@@ -224,7 +224,7 @@ Browse the complete API documentation:
 - [Converter](xref:LibreOfficeKit.Converter) - Main worker pool manager
 - [Instance](xref:LibreOfficeKit.Instance) - Direct LibreOfficeKit wrapper
 - [Document](xref:LibreOfficeKit.Document) - Document operations
-- [PdfOptions](xref:LibreOfficeKit.Enums.PdfOptions) - PDF export options
+- [PdfOptions](xref:LibreOfficeKit.PdfOptions) - PDF export options
 - [OptionalFeatures](xref:LibreOfficeKit.Enums.OptionalFeatures) - Optional feature flags
 - [Exceptions](xref:LibreOfficeKit.Exceptions) - Exception types
 
