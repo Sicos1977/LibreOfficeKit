@@ -42,8 +42,11 @@ public class PdfOptions
     public bool UseLosslessCompression { get; set; }
 
     /// <summary>
-    ///     Gets or sets the JPEG compression quality (1-100).
+    ///     Gets or sets the JPEG compression quality (1 - 100).
     /// </summary>
+    /// <remarks>
+    ///     Default is 90, which provides a good balance of quality and file size. Values above 95 may not yield noticeable improvements and can increase file size significantly.
+    /// </remarks>
     public int Quality { get; set; } = 90;
 
     /// <summary>
@@ -54,6 +57,9 @@ public class PdfOptions
     /// <summary>
     ///     Gets or sets the maximum image resolution in DPI.
     /// </summary>
+    /// <remarks>
+    ///     Default is 300 DPI, which is suitable for print quality. For screen-optimized PDFs, a value of 150 DPI or lower may be sufficient and can reduce file size.
+    /// </remarks>
     public int MaxImageResolutionDpi { get; set; } = 300;
 
     /// <summary>
@@ -79,6 +85,11 @@ public class PdfOptions
     /// <summary>
     ///     Gets or sets whether to fit spreadsheet sheets on a single PDF page.
     /// </summary>
+    /// <remarks>
+    ///     Only applicable when exporting Calc spreadsheets. If true, each sheet will be scaled to fit on a single PDF page, which can
+    ///     improve readability but may reduce quality if the sheet is large. If false, sheets will be exported at their actual size, which
+    ///     may span multiple PDF pages.
+    /// </remarks>
     public bool SinglePageSheets { get; set; }
 
     /// <summary>
@@ -89,6 +100,11 @@ public class PdfOptions
     /// <summary>
     ///     Gets or sets the PDF version/compliance level.
     /// </summary>
+    /// <remarks>
+    ///     Defaults to null, which means the PDF version will be determined based on other settings (e.g. PDF/A compliance). If set, this
+    ///     overrides the PDF version implied by PDF/A compliance. For example, setting <see cref="PdfVersion" /> to <c>PdfA2B</c> will
+    ///     ensure the output is PDF/A-2b compliant, while setting it to <c>Pdf1_7</c> will produce a standard PDF 1.7 document without PDF/A compliance.
+    /// </remarks>
     public PdfVersion? PdfVersion { get; set; }
 
     /// <summary>
@@ -181,7 +197,7 @@ public class PdfOptions
     /// </summary>
     internal void Validate()
     {
-        if (Quality < 1 || Quality > 100)
+        if (Quality is < 1 or > 100)
             throw new ArgumentOutOfRangeException(nameof(Quality), "Must be between 1 and 100.");
 
         if (MaxImageResolutionDpi <= 0)
@@ -197,7 +213,7 @@ public class PdfOptions
     ///     Converts the PDF options to a LibreOffice filter options string suitable for the <c>saveAs</c> API.
     /// </summary>
     /// <returns>A filter options string for the LOK saveAs call.</returns>
-    public string ToFilterOptions()
+    internal string ToFilterOptions()
     {
         Validate();
 

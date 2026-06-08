@@ -94,14 +94,10 @@ public class PdfSecurityOptions
     internal void Validate()
     {
         if (EncryptFile && string.IsNullOrEmpty(DocumentOpenPassword))
-            throw new ArgumentException(
-                "DocumentOpenPassword is required when EncryptFile is true.",
-                nameof(DocumentOpenPassword));
+            throw new ArgumentException("DocumentOpenPassword is required when EncryptFile is true.", nameof(DocumentOpenPassword));
 
         if (RestrictPermissions && string.IsNullOrEmpty(PermissionPassword))
-            throw new ArgumentException(
-                "PermissionPassword is required when RestrictPermissions is true.",
-                nameof(PermissionPassword));
+            throw new ArgumentException("PermissionPassword is required when RestrictPermissions is true.", nameof(PermissionPassword));
     }
     #endregion
 }
