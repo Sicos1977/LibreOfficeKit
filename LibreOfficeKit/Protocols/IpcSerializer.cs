@@ -25,6 +25,7 @@
 //
 
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 
 namespace LibreOfficeKit.Protocols;
 
@@ -42,7 +43,8 @@ internal static class IpcSerializer
     /// <returns>A JSON string representation of the message.</returns>
     public static string Serialize<T>(T message)
     {
-        return JsonSerializer.Serialize(message, IpcJsonContext.Default.Options);
+        var typeInfo = (JsonTypeInfo<T>)IpcJsonContext.Default.GetTypeInfo(typeof(T))!;
+        return JsonSerializer.Serialize(message, typeInfo);
     }
     #endregion
 
@@ -55,7 +57,8 @@ internal static class IpcSerializer
     /// <returns>The deserialized message, or <c>null</c> if deserialization fails.</returns>
     public static T? Deserialize<T>(string json)
     {
-        return JsonSerializer.Deserialize<T>(json, IpcJsonContext.Default.Options);
+        var typeInfo = (JsonTypeInfo<T>)IpcJsonContext.Default.GetTypeInfo(typeof(T))!;
+        return JsonSerializer.Deserialize(json, typeInfo);
     }
     #endregion
 }

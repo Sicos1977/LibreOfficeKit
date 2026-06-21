@@ -79,7 +79,7 @@ internal static class Program
         //Environment.SetEnvironmentVariable("G_MESSAGES_DEBUG", "all", EnvironmentVariableTarget.Process);
 
         // 1. Define Options and Arguments using 2.0.8 canonical syntax
-        var workerOption = new Option<bool>("--worker") { Description = "Start the application as a worker process." };
+        var workerOption = new Option<bool>("--worker") { Description = "Start the application as a worker process.", Arity = ArgumentArity.ZeroOrOne };
 
         var pipeNameOption = new Option<string>("--pipename", "-p") { Description = "The name of the pipe for the worker process." };
 
@@ -109,8 +109,13 @@ internal static class Program
             var inputFile = parseResult.GetValue(inputFileArgument);
             var outputFile = parseResult.GetValue(outputFileArgument);
 
+
             if (isWorker)
             {
+#if DEBUG
+                Console.WriteLine("Worker settings:");
+                Console.WriteLine(" - pipeName '{0}'\n - logLevel '{1}'\n - installPath '{2}'\n - inputFile '{3}'\n - outputFile '{4}'", pipeName, logLevel, installPath, inputFile, outputFile);
+#endif
                 if (string.IsNullOrWhiteSpace(pipeName))
                 {
                     await Console.Error.WriteLineAsync("Error: '--pipename' is required when '--worker' is specified.");

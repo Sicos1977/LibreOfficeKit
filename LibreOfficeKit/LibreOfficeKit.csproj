@@ -12,7 +12,7 @@
     <!-- NuGet package metadata -->
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>LibreOfficeKit</PackageId>
-    <Version>1.0.6</Version>
+    <Version>1.1.0</Version>
     <Authors>Kees van Spelde</Authors>
     <Company>Magic-Sessions</Company>
     <Product>LibreOfficeKit</Product>
@@ -30,11 +30,12 @@
 
     <!-- Worker publish staging directory -->
     <WorkerPublishRoot>$(MSBuildThisFileDirectory)_WorkerPublish\</WorkerPublishRoot>
-    <ConsoleProject>$(MSBuildThisFileDirectory)..\LibreOfficeKit.Console\LibreOfficeKit.Console.csproj</ConsoleProject>
+    <WorkerProject>$(MSBuildThisFileDirectory)..\LibreOfficeKitWorker\LibreOfficeKitWorker.csproj</WorkerProject>
     <ApplicationIcon>LibreOffice.ico</ApplicationIcon>
     <PackageIcon>LibreOffice.png</PackageIcon>
     <Copyright>Kees van Spelde</Copyright>
-    <PackageReleaseNotes>- Renamed LibreOfficeKit.Console.exe to LibreOfficeKitWorker.exe</PackageReleaseNotes>
+    <PackageReleaseNotes>- Fix issue where the worker was not added to the nuget package anymore
+- Redirected console logging for easier debugging</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -58,10 +59,10 @@
 
   <!-- Worker executables bundled per runtime identifier -->
   <ItemGroup>
-    <None Include="$(WorkerPublishRoot)win-x64\LibreOfficeKit.Console.exe" Pack="true" PackagePath="runtimes/win-x64/native/" Condition="Exists('$(WorkerPublishRoot)win-x64\LibreOfficeKit.Console.exe')" />
-    <None Include="$(WorkerPublishRoot)linux-x64\LibreOfficeKit.Console" Pack="true" PackagePath="runtimes/linux-x64/native/" Condition="Exists('$(WorkerPublishRoot)linux-x64\LibreOfficeKit.Console')" />
-    <None Include="$(WorkerPublishRoot)osx-x64\LibreOfficeKit.Console" Pack="true" PackagePath="runtimes/osx-x64/native/" Condition="Exists('$(WorkerPublishRoot)osx-x64\LibreOfficeKit.Console')" />
-    <None Include="$(WorkerPublishRoot)osx-arm64\LibreOfficeKit.Console" Pack="true" PackagePath="runtimes/osx-arm64/native/" Condition="Exists('$(WorkerPublishRoot)osx-arm64\LibreOfficeKit.Console')" />
+    <_WorkerWin Include="$(WorkerPublishRoot)win-x64\LibreOfficeKitWorker.exe" />
+    <_WorkerLinux Include="$(WorkerPublishRoot)linux-x64\LibreOfficeKitWorker" />
+    <_WorkerOsxX64 Include="$(WorkerPublishRoot)osx-x64\LibreOfficeKitWorker" />
+    <_WorkerOsxArm64 Include="$(WorkerPublishRoot)osx-arm64\LibreOfficeKitWorker" />
   </ItemGroup>
 
   <ItemGroup>
@@ -69,17 +70,27 @@
     <PackageReference Include="System.Text.Json" Version="10.0.9" />
   </ItemGroup>
 
-  <!-- Publish worker for all supported RIDs before packing � runs only once (net10.0 TFM) -->
-  <Target Name="PublishWorkerAllRids" BeforeTargets="GenerateNuspec" Condition="'$(TargetFramework)' == 'net10.0'">
-    <Message Text="Publishing LibreOfficeKit.Console worker for all RIDs..." Importance="high" />
+  <!-- Publish worker for all supported RIDs before packing -->
+  <Target Name="PublishWorkerAllRids" BeforeTargets="GenerateNuspec" Condition="'$(IsCrossTargetingBuild)' == 'true'">
+    <Message Text="Publishing LibreOfficeKitWorker for all RIDs..." Importance="high" />
 
-    <MSBuild Projects="$(ConsoleProject)" Targets="Publish" Properties="Configuration=Release;RuntimeIdentifier=win-x64;PublishDir=$(WorkerPublishRoot)win-x64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+    <MSBuild Projects="$(WorkerProject)" Targets="Publish" Properties="TargetFramework=net10.0;Configuration=$(Configuration);RuntimeIdentifier=win-x64;PublishDir=$(WorkerPublishRoot)win-x64\" />
 
-    <MSBuild Projects="$(ConsoleProject)" Targets="Publish" Properties="Configuration=Release;RuntimeIdentifier=linux-x64;PublishDir=$(WorkerPublishRoot)linux-x64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+    <MSBuild Projects="$(WorkerProject)" Targets="Publish" Properties="TargetFramework=net10.0;Configuration=$(Configuration);RuntimeIdentifier=linux-x64;PublishDir=$(WorkerPublishRoot)linux-x64\" />
 
-    <MSBuild Projects="$(ConsoleProject)" Targets="Publish" Properties="Configuration=Release;RuntimeIdentifier=osx-x64;PublishDir=$(WorkerPublishRoot)osx-x64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+    <MSBuild Projects="$(WorkerProject)" Targets="Publish" Properties="TargetFramework=net10.0;Configuration=$(Configuration);RuntimeIdentifier=osx-x64;PublishDir=$(WorkerPublishRoot)osx-x64\" />
 
-    <MSBuild Projects="$(ConsoleProject)" Targets="Publish" Properties="Configuration=Release;RuntimeIdentifier=osx-arm64;PublishDir=$(WorkerPublishRoot)osx-arm64\;SelfContained=true;PublishSingleFile=true;PublishTrimmed=true;TrimMode=full" />
+    <MSBuild Projects="$(WorkerProject)" Targets="Publish" Properties="TargetFramework=net10.0;Configuration=$(Configuration);RuntimeIdentifier=osx-arm64;PublishDir=$(WorkerPublishRoot)osx-arm64\" />
+  </Target>
+
+  <!-- Include published workers in package -->
+  <Target Name="IncludeWorkerExecutables" DependsOnTargets="PublishWorkerAllRids" BeforeTargets="_GetPackageFiles" Condition="'$(IsCrossTargetingBuild)' == 'true'">
+    <ItemGroup>
+      <None Include="@(_WorkerWin)" Pack="true" PackagePath="runtimes/win-x64/native/" Condition="Exists('@(_WorkerWin)')" />
+      <None Include="@(_WorkerLinux)" Pack="true" PackagePath="runtimes/linux-x64/native/" Condition="Exists('@(_WorkerLinux)')" />
+      <None Include="@(_WorkerOsxX64)" Pack="true" PackagePath="runtimes/osx-x64/native/" Condition="Exists('@(_WorkerOsxX64)')" />
+      <None Include="@(_WorkerOsxArm64)" Pack="true" PackagePath="runtimes/osx-arm64/native/" Condition="Exists('@(_WorkerOsxArm64)')" />
+    </ItemGroup>
   </Target>
 
 </Project>

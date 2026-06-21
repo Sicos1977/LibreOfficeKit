@@ -210,6 +210,8 @@ public class Converter : IAsyncDisposable
         {
             _installPath = installPath;
             _logger.LogDebug("LibreOffice installation path '{InstallPath}'", _installPath);
+            if (!Directory.Exists(_installPath))
+                throw new DirectoryNotFoundException($"Specified LibreOffice installation path '{_installPath}' not found.");
         }
 
         if (string.IsNullOrWhiteSpace(_workerExePath))
@@ -550,12 +552,12 @@ public class Converter : IAsyncDisposable
 
         Process? process = null;
 
-        _logger.LogDebug("Spawning worker process with pipe '{PipeName}'", pipeName);
+        _logger.LogDebug("Spawning worker process with pipe '{PipeName}' from {WorkerExePath}", pipeName, _workerExePath);
 
         try
         {
             var logLevel = GetMinimumLogLevel();
-            var arguments = $"--worker {pipeName} --loglevel {logLevel}";
+            var arguments = $"--worker --pipename {pipeName} --loglevel {logLevel}";
 
             if (!string.IsNullOrWhiteSpace(_installPath))
                 arguments += $" --installpath \"{_installPath}\"";
@@ -566,14 +568,28 @@ public class Converter : IAsyncDisposable
                 Arguments = arguments,
                 CreateNoWindow = true,
                 UseShellExecute = false,
+                RedirectStandardOutput = true,
                 RedirectStandardError = true,
             }) ?? throw new ConversionFailedException("Failed to start worker process.");
 
-            if (process.HasExited)
+            process.Exited += (_, _) => _logger.LogWarning("Worker process exited unexpectedly on PID '{Pid}'", process.Id);
+            process.OutputDataReceived += (_, args) =>
             {
-                var error = await process.StandardError.ReadToEndAsync().ConfigureAwait(false);
-                throw new ConversionFailedException($"Failed to start worker process, error: '{error}'");
-            }
+                if (!string.IsNullOrWhiteSpace(args.Data))
+                    _logger.LogInformation("{Data}", args.Data);
+            };
+            process.ErrorDataReceived += (_, args) =>
+            {
+                if (!string.IsNullOrWhiteSpace(args.Data))
+                    _logger.LogError("{Data}", args.Data);
+            };
+            process.BeginOutputReadLine();
+            process.BeginErrorReadLine();
+
+            if (process.HasExited)
+                throw new ConversionFailedException("Failed to start worker process.");
+
+            _logger.LogInformation("Worker process started successfully on PID '{Pid}'", process.Id);
 
             var connectionTimeout = deadline.HasValue ? GetRemainingTimeout(deadline.Value) : defaultTimeout;
             if (connectionTimeout <= TimeSpan.Zero) throw new TimeoutException("Conversion timed out.");
