@@ -557,7 +557,7 @@ public class Converter : IAsyncDisposable
         try
         {
             var logLevel = GetMinimumLogLevel();
-            var arguments = $"--worker --pipename {pipeName} --loglevel {logLevel}";
+            var arguments = $"--worker 1 --pipename {pipeName} --loglevel {logLevel}";
 
             if (!string.IsNullOrWhiteSpace(_installPath))
                 arguments += $" --installpath \"{_installPath}\"";
