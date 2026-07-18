@@ -115,6 +115,16 @@ internal sealed class Instance : IDisposable
     ///     Library names to search for on macOS.
     /// </summary>
     private static readonly string[] MacosLibs = ["libsofficeapp.dylib", "libmergedlo.dylib"];
+
+    [UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+    [return: MarshalAs(UnmanagedType.I1)]
+    private delegate bool SignDocumentDelegate(
+        IntPtr pOffice,
+        IntPtr url,
+        IntPtr certificateBinary,
+        int certificateBinarySize,
+        IntPtr privateKeyBinary,
+        int privateKeyBinarySize);
     #endregion
 
     #region Constructor
@@ -964,7 +974,7 @@ internal sealed class Instance : IDisposable
         if (!File.Exists(fullPath))
             throw new FileNotFoundException("Document to sign not found.", fullPath);
 
-        var signDocument = Marshal.GetDelegateForFunctionPointer<LokSignDocumentFunction>(_officeClass.signDocument);
+        var signDocument = Marshal.GetDelegateForFunctionPointer<SignDocumentDelegate>(_officeClass.signDocument);
         var documentUrl = PathToFileUrl(fullPath);
         var certificateBytes = CertificateExportHelper.ExportCertificate(certificate);
         var privateKeyBytes = CertificateExportHelper.ExportPrivateKey(certificate);

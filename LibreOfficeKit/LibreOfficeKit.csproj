@@ -12,7 +12,7 @@
     <!-- NuGet package metadata -->
     <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     <PackageId>LibreOfficeKit</PackageId>
-    <Version>1.1.1</Version>
+    <Version>1.1.2</Version>
     <Authors>Kees van Spelde</Authors>
     <Company>Magic-Sessions</Company>
     <Product>LibreOfficeKit</Product>
@@ -34,8 +34,8 @@
     <ApplicationIcon>LibreOffice.ico</ApplicationIcon>
     <PackageIcon>LibreOffice.png</PackageIcon>
     <Copyright>Kees van Spelde</Copyright>
-    <PackageReleaseNotes>- Fix issue where the worker was not added to the nuget package anymore
-- Redirected console logging for easier debugging</PackageReleaseNotes>
+    <PackageReleaseNotes>- Added support for custom profile path
+- Added support to sign PDF's with a certificate</PackageReleaseNotes>
   </PropertyGroup>
 
   <ItemGroup>

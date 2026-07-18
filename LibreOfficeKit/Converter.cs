@@ -370,8 +370,8 @@ public class Converter : IAsyncDisposable
                     throw response.ExceptionType switch
                     {
                         // Re-throw the original exception type if available
-                        nameof(FilePasswordProtectedException) => new FilePasswordProtectedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"),
-                        nameof(FileTypeNotSupportedException) => new FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"), _ => new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'")
+                        nameof(FilePasswordProtectedException) => new FilePasswordProtectedException($"PDF conversion failed '{response.Error ?? "Unknown error"}'"),
+                        nameof(FileTypeNotSupportedException) => new FileTypeNotSupportedException($"PDF conversion failed '{response.Error ?? "Unknown error"}'"), _ => new ConversionFailedException($"PDF conversion failed '{response.Error ?? "Unknown error"}'")
                     };
                 }
             }, deadline).ConfigureAwait(false);
@@ -379,7 +379,7 @@ public class Converter : IAsyncDisposable
             if (options?.Signature != null)
                 await SignPdfAsync(outputFile, options.Signature).ConfigureAwait(false);
 
-            _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
+            _logger.LogInformation("Conversion completed '{OutputFile}'", outputFile);
         }
         finally
         {
@@ -387,27 +387,6 @@ public class Converter : IAsyncDisposable
             {
                 _logger = oldLogger;
             }   
-        }
-    }
-
-    private async Task SignPdfAsync(string outputFile, PdfSignatureOptions signatureOptions)
-    {
-        var certificate = signatureOptions.Certificate ?? throw new InvalidOperationException("A certificate is required to sign the PDF.");
-        var installPath = _installPath ?? Instance.FindInstallPath();
-
-        if (string.IsNullOrWhiteSpace(installPath))
-            throw new InvalidOperationException("LibreOffice installation path could not be resolved for PDF signing.");
-
-        await SigningSemaphore.WaitAsync().ConfigureAwait(false);
-        try
-        {
-            _logger.LogInformation("Signing PDF '{OutputFile}'", outputFile);
-            using var office = Instance.Create(installPath, _logger);
-            office.SignDocument(outputFile, certificate);
-        }
-        finally
-        {
-            SigningSemaphore.Release();
         }
     }
 
@@ -457,6 +436,36 @@ public class Converter : IAsyncDisposable
         {
             TryDeleteFile(tempInputFile);
             TryDeleteFile(tempOutputFile);
+        }
+    }
+    #endregion
+
+    #region SignPdfAsync
+    /// <summary>
+    ///     Signs the PDF file using the provided signature options.
+    /// </summary>
+    /// <param name="outputFile">The path to the PDF file to be signed.</param>
+    /// <param name="signatureOptions">The options for signing the PDF.</param>
+    /// <returns>A task representing the asynchronous operation.</returns>
+    /// <exception cref="InvalidOperationException">Thrown when the certificate or LibreOffice installation path is not available.</exception>
+    private async Task SignPdfAsync(string outputFile, PdfSignatureOptions signatureOptions)
+    {
+        var certificate = signatureOptions.Certificate ?? throw new InvalidOperationException("A certificate is required to sign the PDF.");
+        var installPath = _installPath ?? Instance.FindInstallPath();
+
+        if (string.IsNullOrWhiteSpace(installPath))
+            throw new InvalidOperationException("LibreOffice installation path could not be resolved for PDF signing.");
+
+        await SigningSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _logger.LogInformation("Signing PDF '{OutputFile}'", outputFile);
+            using var office = Instance.Create(installPath!, _logger);
+            office.SignDocument(outputFile, certificate);
+        }
+        finally
+        {
+            SigningSemaphore.Release();
         }
     }
     #endregion
