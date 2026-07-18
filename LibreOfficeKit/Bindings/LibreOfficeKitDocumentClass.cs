@@ -34,7 +34,9 @@ namespace LibreOfficeKit.Bindings;
 [StructLayout(LayoutKind.Sequential)]
 internal struct LibreOfficeKitDocumentClass
 {
-    /// <summary>Size of this struct in bytes.</summary>
+    /// <summary>
+    ///     Size of this struct in bytes.
+    /// </summary>
     public nuint nSize;
 
     /// <summary>

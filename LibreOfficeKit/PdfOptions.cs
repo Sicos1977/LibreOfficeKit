@@ -136,6 +136,11 @@ public class PdfOptions
     ///     Gets or sets the initial viewer panel state.
     /// </summary>
     public InitialView InitialView { get; set; } = InitialView.Default;
+
+    /// <summary>
+    ///     Gets or sets the PDF signing options.
+    /// </summary>
+    public PdfSignatureOptions? Signature { get; set; }
     #endregion
 
     #region Presets
@@ -205,6 +210,7 @@ public class PdfOptions
 
         Compression?.Validate();
         Security?.Validate();
+        Signature?.Validate();
     }
     #endregion
 

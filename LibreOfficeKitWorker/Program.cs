@@ -90,6 +90,7 @@ internal static class Program
         };
 
         var installPathOption = new Option<string>("--installpath", "-i") { Description = "The custom installation path for LibreOffice." };
+        var userProfilePathOption = new Option<string>("--userprofilepath", "-u") { Description = "The custom user profile path for LibreOffice." };
         var inputFileArgument = new Argument<FileInfo>("input") { Description = "The input file to convert." };
         var outputFileArgument = new Argument<FileInfo>("output") { Description = "The optional output file.", Arity = ArgumentArity.ZeroOrOne };
 
@@ -98,6 +99,7 @@ internal static class Program
         rootCommand.Options.Add(pipeNameOption);
         rootCommand.Options.Add(logLevelOption);
         rootCommand.Options.Add(installPathOption);
+        rootCommand.Options.Add(userProfilePathOption);
         rootCommand.Arguments.Add(inputFileArgument);
         rootCommand.Arguments.Add(outputFileArgument);
         rootCommand.SetAction(async parseResult =>
@@ -106,6 +108,7 @@ internal static class Program
             var pipeName = parseResult.GetValue(pipeNameOption);
             var logLevel = parseResult.GetValue(logLevelOption);
             var installPath = parseResult.GetValue(installPathOption);
+            var userProfilePath = parseResult.GetValue(userProfilePathOption);
             var inputFile = parseResult.GetValue(inputFileArgument);
             var outputFile = parseResult.GetValue(outputFileArgument);
 
@@ -114,7 +117,7 @@ internal static class Program
             {
 #if DEBUG
                 Console.WriteLine("Worker settings:");
-                Console.WriteLine(" - pipeName '{0}'\n - logLevel '{1}'\n - installPath '{2}'\n - inputFile '{3}'\n - outputFile '{4}'", pipeName, logLevel, installPath, inputFile, outputFile);
+                Console.WriteLine(" - pipeName '{0}'\n - logLevel '{1}'\n - installPath '{2}'\n - userProfilePath '{3}'\n - inputFile '{4}'\n - outputFile '{5}'", pipeName, logLevel, installPath, userProfilePath, inputFile, outputFile);
 #endif
                 if (string.IsNullOrWhiteSpace(pipeName))
                 {
@@ -124,7 +127,7 @@ internal static class Program
 
                 try
                 {
-                    return await WorkerProcess.RunAsync(pipeName, logLevel, installPath).ConfigureAwait(false);
+                    return await WorkerProcess.RunAsync(pipeName, logLevel, installPath, userProfilePath).ConfigureAwait(false);
                 }
                 catch (Exception exception)
                 {
@@ -139,7 +142,7 @@ internal static class Program
             {
                 Console.WriteLine("Usage:");
                 Console.WriteLine("  LibreOfficeKit.Console <input> [output] [--installpath <path>]");
-                Console.WriteLine("  LibreOfficeKit.Console --worker --pipename <pipeName> [--loglevel <Trace|Debug|...>] [--installpath <path>]");
+                Console.WriteLine("  LibreOfficeKit.Console --worker --pipename <pipeName> [--loglevel <Trace|Debug|...>] [--installpath <path>] [--userprofilepath <path>]");
                 return 0;
             }
 

@@ -32,6 +32,7 @@
 // =============================================================================
 
 using System.Diagnostics;
+using System.Security.Cryptography.X509Certificates;
 using LibreOfficeKit.Bindings;
 using LibreOfficeKit.Enums;
 using Microsoft.Extensions.Logging;
@@ -134,7 +135,6 @@ internal sealed class Instance : IDisposable
     #endregion
 
     #region StringToHGlobalUtf8
-#if NETSTANDARD2_0
     /// <summary>
     ///     Converts a C# string to a UTF-8 encoded string in unmanaged memory, null-terminated.
     /// </summary>
@@ -147,7 +147,6 @@ internal sealed class Instance : IDisposable
         Marshal.Copy(bytes, 0, ptr, bytes.Length);
         return ptr;
     }
-#endif
     #endregion
 
     #region Utf8PtrToString
@@ -295,10 +294,11 @@ internal sealed class Instance : IDisposable
     /// </summary>
     /// <param name="installPath">Absolute path to the LibreOffice program directory.</param>
     /// <param name="logger">Optional logger for LibreOfficeKit events and diagnostics.</param>
+    /// <param name="userProfilePath">Optional custom user profile path. If null, a temporary profile will be created.</param>
     /// <returns>A new <see cref="Instance" />.</returns>
     /// <exception cref="InvalidOperationException">Thrown when an instance is already active or initialization fails.</exception>
     /// <exception cref="DirectoryNotFoundException">Thrown when the install path does not exist.</exception>
-    public static Instance Create(string installPath, ILogger? logger = null)
+    public static Instance Create(string installPath, ILogger? logger = null, string? userProfilePath = null)
     {
         _logger = logger;
 
@@ -319,8 +319,13 @@ internal sealed class Instance : IDisposable
         if (NativeLibrary.TryGetExport(libraryHandle, "libreofficekit_hook_2", out var hook2Ptr))
         {
             var hook2 = Marshal.GetDelegateForFunctionPointer<LokHook2Function>(hook2Ptr);
-            var tempProfile = Path.Combine(Path.GetTempPath(), $"lok_profile_{Guid.NewGuid():N}");
-            Directory.CreateDirectory(tempProfile);
+            var profile = $"lok_profile_{Guid.NewGuid():N}";
+            var tempProfile = string.IsNullOrWhiteSpace(userProfilePath)
+                ? Path.Combine(Path.GetTempPath(), profile)
+                : Path.Combine(userProfilePath, profile);
+
+            if (!Directory.Exists(tempProfile))
+                Directory.CreateDirectory(tempProfile);
 
             //    var registryPath = Path.Combine(tempProfile, "user", "registrymodifications.xcu");
             //    Directory.CreateDirectory(Path.GetDirectoryName(registryPath)!);
@@ -933,6 +938,73 @@ internal sealed class Instance : IDisposable
                 ? "Document password registered for URL: '{Url}'"
                 : "Document password cleared for URL: '{Url}'",
             url);
+    }
+    #endregion
+
+    #region SignDocument
+    /// <summary>
+    ///     Signs an existing document using the native LibreOfficeKit signing API.
+    /// </summary>
+    /// <param name="documentPath">The path to the document that should be signed.</param>
+    /// <param name="certificate">The certificate used to sign the document.</param>
+    internal void SignDocument(string documentPath, X509Certificate2 certificate)
+    {
+        if (_disposed)
+            throw new ObjectDisposedException(GetType().FullName);
+
+        if (_officeClass.signDocument == IntPtr.Zero)
+            throw new InvalidOperationException(
+                "signDocument function not available in this version. " +
+                "This feature requires version 6.2 or later.");
+
+        if (string.IsNullOrWhiteSpace(documentPath))
+            throw new ArgumentException("A document path is required.", nameof(documentPath));
+
+        var fullPath = Path.GetFullPath(documentPath);
+        if (!File.Exists(fullPath))
+            throw new FileNotFoundException("Document to sign not found.", fullPath);
+
+        var signDocument = Marshal.GetDelegateForFunctionPointer<LokSignDocumentFunction>(_officeClass.signDocument);
+        var documentUrl = PathToFileUrl(fullPath);
+        var certificateBytes = CertificateExportHelper.ExportCertificate(certificate);
+        var privateKeyBytes = CertificateExportHelper.ExportPrivateKey(certificate);
+
+        var pUrl = StringToHGlobalUtf8(documentUrl);
+        var pCertificate = ByteArrayToHGlobal(certificateBytes);
+        var pPrivateKey = ByteArrayToHGlobal(privateKeyBytes);
+
+        try
+        {
+            _logger?.LogInformation("Signing document '{DocumentPath}'", fullPath);
+
+            var success = signDocument(
+                _pOffice,
+                pUrl,
+                pCertificate,
+                certificateBytes.Length,
+                pPrivateKey,
+                privateKeyBytes.Length);
+
+            if (!success)
+                throw new InvalidOperationException($"Failed to sign document '{fullPath}'.");
+
+            _logger?.LogInformation("Document signed successfully: '{DocumentPath}'", fullPath);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(pUrl);
+            Marshal.FreeHGlobal(pCertificate);
+            Marshal.FreeHGlobal(pPrivateKey);
+        }
+    }
+    #endregion
+
+    #region ByteArrayToHGlobal
+    private static IntPtr ByteArrayToHGlobal(byte[] data)
+    {
+        var pointer = Marshal.AllocHGlobal(data.Length);
+        Marshal.Copy(data, 0, pointer, data.Length);
+        return pointer;
     }
     #endregion
 

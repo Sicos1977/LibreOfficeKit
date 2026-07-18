@@ -385,6 +385,26 @@ internal delegate void LokSetDocumentPasswordFunction(
     [MarshalAs(UnmanagedType.LPUTF8Str)] string? password);
 
 /// <summary>
+///     Delegate for <c>LibreOfficeKitClass.signDocument</c>.
+/// </summary>
+/// <param name="pOffice">Pointer to the LibreOfficeKit instance.</param>
+/// <param name="url">Pointer to a UTF-8 encoded string containing the document URL.</param>
+/// <param name="certificateBinary">Pointer to the certificate binary data.</param>
+/// <param name="certificateBinarySize">Size of the certificate binary data in bytes.</param>
+/// <param name="privateKeyBinary">Pointer to the private key binary data.</param>
+/// <param name="privateKeyBinarySize">Size of the private key binary data in bytes.</param>
+/// <returns><c>true</c> when the document is signed successfully; otherwise <c>false</c>.</returns>
+[UnmanagedFunctionPointer(CallingConvention.Cdecl)]
+[return: MarshalAs(UnmanagedType.I1)]
+internal delegate bool LokSignDocumentFunction(
+    IntPtr pOffice,
+    IntPtr url,
+    IntPtr certificateBinary,
+    int certificateBinarySize,
+    IntPtr privateKeyBinary,
+    int privateKeyBinarySize);
+
+/// <summary>
 ///     Callback signature that can display an interactive file save dialog.
 /// </summary>
 /// <param name="pData">User data pointer passed to the registration function.</param>

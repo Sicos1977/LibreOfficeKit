@@ -102,6 +102,11 @@ public class Converter : IAsyncDisposable
     private readonly string? _installPath;
 
     /// <summary>
+    ///     The custom user profile path for LibreOffice. If null, a temporary profile will be created for each worker.
+    /// </summary>
+    private readonly string? _userProfilePath;
+
+    /// <summary>
     ///     Collection of idle workers available for use.
     /// </summary>
     private readonly ConcurrentBag<WorkerHandle> _availableWorkers = [];
@@ -137,6 +142,11 @@ public class Converter : IAsyncDisposable
     ///     Semaphore signaled when a worker becomes available.
     /// </summary>
     private readonly SemaphoreSlim _workerAvailable;
+
+    /// <summary>
+    ///     Semaphore that serializes in-process PDF signing because LibreOfficeKit allows only one active instance per process.
+    /// </summary>
+    private static readonly SemaphoreSlim SigningSemaphore = new(1, 1);
 
     /// <summary>
     ///     Cancellation token source for background tasks.
@@ -175,7 +185,15 @@ public class Converter : IAsyncDisposable
     /// <param name="workerExePath">Optional path to the worker executable. If null or empty, it will be resolved automatically.</param>
     /// <param name="logger">Optional logger. When <c>null</c>, logging is disabled.</param>
     /// <param name="installPath">Optional custom installation path for LibreOffice.</param>
-    public Converter(int maxInstances, int minHotStandby, TimeSpan idleTimeout, string? workerExePath = null, ILogger? logger = null, string? installPath = null)
+    /// <param name="userProfilePath">Optional custom user profile path for LibreOffice (a new folder with a unique name will be created in this path).</param>
+    public Converter(
+        int maxInstances, 
+        int minHotStandby, 
+        TimeSpan idleTimeout, 
+        string? workerExePath = null, 
+        ILogger? logger = null, 
+        string? installPath = null,
+        string? userProfilePath = null)
     {
         _logger = logger ?? NullLogger<Converter>.Instance;
 
@@ -214,11 +232,19 @@ public class Converter : IAsyncDisposable
                 throw new DirectoryNotFoundException($"Specified LibreOffice installation path '{_installPath}' not found.");
         }
 
+        if (!string.IsNullOrWhiteSpace(userProfilePath))
+        {
+            _userProfilePath = userProfilePath;
+            _logger.LogDebug("LibreOffice user profile path '{UserProfilePath}'", _userProfilePath);
+            if (!Directory.Exists(_userProfilePath))
+                throw new DirectoryNotFoundException($"Specified LibreOffice user profile path '{_userProfilePath}' not found.");
+        }
+
         if (string.IsNullOrWhiteSpace(_workerExePath))
             throw new InvalidOperationException("Worker executable path could not be resolved, try to specify it explicitly.");
 
         _logger.LogInformation("Converter initialized: maxInstances={MaxInstances}, minHotStandby={MinHotStandby}, idleTimeout={IdleTimeout}", maxInstances, minHotStandby, idleTimeout);
-        _logger.LogDebug("Worker executable path: '{WorkerExePath}'", _workerExePath);
+        _logger.LogDebug("Worker executable path '{WorkerExePath}'", _workerExePath);
 
         for (var i = 0; i < minHotStandby; i++)
         {
@@ -348,9 +374,12 @@ public class Converter : IAsyncDisposable
                         nameof(FileTypeNotSupportedException) => new FileTypeNotSupportedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'"), _ => new ConversionFailedException($"PDF conversion failed: '{response.Error ?? "Unknown error"}'")
                     };
                 }
-
-                _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
             }, deadline).ConfigureAwait(false);
+
+            if (options?.Signature != null)
+                await SignPdfAsync(outputFile, options.Signature).ConfigureAwait(false);
+
+            _logger.LogInformation("Conversion completed: '{OutputFile}'", outputFile);
         }
         finally
         {
@@ -358,6 +387,27 @@ public class Converter : IAsyncDisposable
             {
                 _logger = oldLogger;
             }   
+        }
+    }
+
+    private async Task SignPdfAsync(string outputFile, PdfSignatureOptions signatureOptions)
+    {
+        var certificate = signatureOptions.Certificate ?? throw new InvalidOperationException("A certificate is required to sign the PDF.");
+        var installPath = _installPath ?? Instance.FindInstallPath();
+
+        if (string.IsNullOrWhiteSpace(installPath))
+            throw new InvalidOperationException("LibreOffice installation path could not be resolved for PDF signing.");
+
+        await SigningSemaphore.WaitAsync().ConfigureAwait(false);
+        try
+        {
+            _logger.LogInformation("Signing PDF '{OutputFile}'", outputFile);
+            using var office = Instance.Create(installPath, _logger);
+            office.SignDocument(outputFile, certificate);
+        }
+        finally
+        {
+            SigningSemaphore.Release();
         }
     }
 
@@ -561,6 +611,9 @@ public class Converter : IAsyncDisposable
 
             if (!string.IsNullOrWhiteSpace(_installPath))
                 arguments += $" --installpath \"{_installPath}\"";
+
+            if (!string.IsNullOrWhiteSpace(_userProfilePath))
+                arguments += $" --userprofilepath \"{_userProfilePath}\"";
 
             process = Process.Start(new ProcessStartInfo
             {
